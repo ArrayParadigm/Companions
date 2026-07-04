@@ -1,5 +1,17 @@
 # Test Log
 
+## 2026-07-04 - 0.1.11 TODO Sprint
+
+| Severity | Area | Result | Notes |
+| --- | --- | --- | --- |
+| Info | Static compile | Pass | `python -m py_compile Companion_Web.py Memory_Manager.py`. |
+| Info | Compileall | Pass | `python -m compileall Companion_Web.py Memory_Manager.py`. |
+| Info | HTML surface | Pass | Static marker check found project category selectors, Journal and Fitness submit controls, Fitness complete checkbox, Directive Date Added column, Psalm 119 summary markers, and no Chores tab or old daily exercise field IDs. |
+| Info | API smoke | Pass | Temporary server posted a Journal entry, posted a Fitness entry, saved a Daily Check-in with only `fitness_completed` for fitness, marked Psalm 119:1-8 read, reported 1/22 Psalm 119 sections, created a Chores project category item, created a directive with date added, and backfilled date added on an old directive update. |
+| Info | JSON validation | Pass | `companion-files.json`, `control_data/*.json`, and `tracker_data/*.json` parse successfully. |
+| Info | Copyover check | Pass | `cmd /c copyover.bat --check` detected `D:\000_Files\002_Projects\EVE\MS\Companions-1`, version `0.1.11`, required `kjv.txt`, and copied no files. |
+| Info | Whitespace | Pass | `git diff --check`; only expected LF-to-CRLF warnings from Git autocrlf. |
+
 ## 2026-07-04 - 0.1.10 TODO Sprint
 
 | Severity | Area | Result | Notes |

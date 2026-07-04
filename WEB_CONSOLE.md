@@ -36,18 +36,20 @@ http://127.0.0.1:8787
 - `Copy Packet` gives only the raw base64 packet.
 - `Apply Commands` accepts companion memory and directive command batches.
 - The ID-only memory index exposes IDs, categories, status, weights, tags, and timestamps, but not memory content.
-- Directive Ledger stores companion-issued directives and shows task details in readable plaintext.
+- Directive Ledger stores companion-issued directives and shows date added plus task details in readable plaintext.
 - Directive commands also write a compact history memory into the issuer companion packet when the issuer is configured.
 - Proof Vault stores proof metadata and uploaded proof files under `proof_vault/`, with download links for uploaded files.
-- Daily Check-ins read the existing emotional journal, productivity tracker, and physical tracker JSON files, with summary, check-in, journal, and physical tabs.
+- Daily Check-ins read the existing emotional journal, productivity tracker, and fitness tracker JSON files, with summary, check-in, journal, and fitness tabs.
+- The Journal tab can add new journal entries.
+- The Fitness tab can add new fitness entries.
 - Spiritual owns daily reading, extra reading, persistent Bible chapter progress, and prayer categories for gratitude, requests, repentance, service, and closeness.
-- Projects has Home Maintenance, Vehicle Maintenance, Tech Projects, and Chores tabs with category project lists that open new-tab project pages.
+- Projects has Home Maintenance, Vehicle Maintenance, and Tech Projects tabs plus a category selector; Chores is a project category, not a tab.
 - Tech projects use repo/environment/access wording instead of physical-location wording.
 - Project pages track date added, date started, due date, expenses, uploaded expense/task/work-log files, receipts, pictures, tasks, work logs, category-specific info, notes, and next steps.
 - Project pages can edit/save projects and delete them after confirmation.
-- Daily Check-ins stores a nested daily journal in `control_data/daily_checkins.json` and keeps only one spiritual confirmation: daily reading complete.
+- Daily Check-ins stores a nested daily journal in `control_data/daily_checkins.json` and keeps only reading and fitness completion checkboxes for those areas.
 - Spiritual Daily Reading carries forward the old Java daily reading schedule using `kjv.txt`: daily Proverbs, five Psalms, and Acts.
-- Spiritual Extra Reading can open whole Bible chapters and stores persistent chapter completion progress.
+- Spiritual Extra Reading can open whole Bible chapters and stores persistent chapter completion progress, including Psalm 119 section progress in the summary.
 - Dashboard separates memory, directive, spiritual, physical, and work summaries.
 - Council Mode is a handoff workflow for gathering separate companion perspectives.
 

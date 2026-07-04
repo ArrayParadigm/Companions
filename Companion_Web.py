@@ -97,10 +97,14 @@ TRACKER_FILES = {
     ),
 }
 
+PSALM_119_SECTIONS = [
+    {"id": f"psalm-119-{start}-{start + 7}", "label": f"Psalm 119:{start}-{start + 7}"}
+    for start in range(1, 176, 8)
+]
+
 READING_PLANS = {
     "Daily Rhythm": [
-        {"id": "psalm-119-1-8", "label": "Psalm 119:1-8"},
-        {"id": "psalm-119-9-16", "label": "Psalm 119:9-16"},
+        *PSALM_119_SECTIONS,
         {"id": "proverbs-1", "label": "Proverbs 1"},
         {"id": "john-1", "label": "John 1"},
     ],
@@ -325,6 +329,18 @@ def mark_reading_complete(data):
     return completed[reading_id]
 
 
+def psalm_119_progress(completed):
+    section_ids = {section["id"] for section in PSALM_119_SECTIONS}
+    completed_ids = [reading_id for reading_id in completed if reading_id in section_ids]
+    total = len(section_ids)
+    return {
+        "completed": len(completed_ids),
+        "total": total,
+        "percent": round((len(completed_ids) / total) * 100, 2) if total else 0,
+        "completed_ids": sorted(completed_ids),
+    }
+
+
 def reading_progress_state():
     store = reading_progress_store()
     completed = store.get("completed", {})
@@ -337,6 +353,7 @@ def reading_progress_state():
         "bible_completed": len(bible_completed),
         "bible_total": total,
         "bible_percent": percent,
+        "psalm_119": psalm_119_progress(completed),
         "updated_at": store.get("updated_at", ""),
     }
 
@@ -426,9 +443,7 @@ def create_checkin(data):
             "energy": clean_int(data.get("energy"), default=5, minimum=1, maximum=10),
             "sleep_hours": clean_float(data.get("sleep_hours"), default=0, minimum=0, maximum=24),
             "food_on_plan": clean_bool(data.get("food_on_plan")),
-            "exercise_minutes": clean_int(data.get("exercise_minutes"), default=0, minimum=0),
-            "exercise_type": data.get("exercise_type", "").strip(),
-            "weight": data.get("weight", "").strip(),
+            "fitness_completed": clean_bool(data.get("fitness_completed")),
         },
         "mind": {
             "mood": clean_int(data.get("mood"), default=5, minimum=1, maximum=10),
@@ -468,6 +483,41 @@ def create_checkin(data):
     }
     store["entries"].append(entry)
     write_json(CHECKINS_FILE, store)
+    return entry
+
+
+def create_journal_entry(data):
+    path = TRACKER_FILES["journal"]
+    entries = read_json(path, [])
+    entry = {
+        "timestamp": now_stamp().replace("T", " "),
+        "prompt": str(data.get("prompt") or "General reflection.").strip() or "General reflection.",
+        "mood": clean_int(data.get("mood"), default=5, minimum=1, maximum=10),
+        "entry": str(data.get("entry") or "").strip(),
+    }
+    if not entry["entry"]:
+        raise ValueError("Journal entry text is required.")
+    entries.append(entry)
+    write_json(path, entries)
+    return entry
+
+
+def create_fitness_entry(data):
+    path = TRACKER_FILES["physical"]
+    entries = read_json(path, [])
+    exercises = clean_string_list(data.get("exercises"))
+    entry = {
+        "timestamp": now_stamp().replace("T", " "),
+        "session_type": str(data.get("session_type") or "Fitness").strip() or "Fitness",
+        "exercises": exercises,
+        "duration_minutes": clean_int(data.get("duration_minutes"), default=0, minimum=0),
+        "notes": str(data.get("notes") or "").strip(),
+        "progress": str(data.get("progress") or "").strip(),
+    }
+    if not entry["exercises"] and not entry["notes"]:
+        raise ValueError("Fitness entry requires exercises or notes.")
+    entries.append(entry)
+    write_json(path, entries)
     return entry
 
 
@@ -1002,6 +1052,7 @@ def update_directive(directive_id, data):
     store = directive_store()
     for directive in store.get("directives", []):
         if directive["id"].lower() == directive_id.lower():
+            directive.setdefault("created_at", now_stamp())
             for key in ("status", "title", "details", "priority", "due_at", "proof_required"):
                 if key in data:
                     directive[key] = data[key]
@@ -1580,7 +1631,7 @@ INDEX_HTML = r"""<!doctype html>
           <div class="muted" id="dashSpiritDetail"></div>
         </div>
         <div class="panel">
-          <h2>Physical</h2>
+          <h2>Fitness</h2>
           <div class="metric" id="dashPhysical">0</div>
           <div class="muted" id="dashPhysicalDetail"></div>
         </div>
@@ -1746,7 +1797,7 @@ INDEX_HTML = r"""<!doctype html>
             <button class="active" data-tracker="summary">Summary</button>
             <button data-tracker="checkins">Check-In</button>
             <button data-tracker="journal">Journal</button>
-            <button data-tracker="physical">Physical</button>
+            <button data-tracker="fitness">Fitness</button>
           </div>
           <div class="tracker-view active" data-tracker-view="summary">
             <div id="trackerSummary"></div>
@@ -1770,18 +1821,6 @@ INDEX_HTML = r"""<!doctype html>
               <div>
                 <label>Sleep hours</label>
                 <input id="checkinSleep" type="number" min="0" max="24" step="0.25">
-              </div>
-              <div>
-                <label>Exercise minutes</label>
-                <input id="checkinExerciseMinutes" type="number" min="0" value="0">
-              </div>
-              <div>
-                <label>Exercise type</label>
-                <input id="checkinExerciseType">
-              </div>
-              <div>
-                <label>Weight</label>
-                <input id="checkinWeight">
               </div>
               <div>
                 <label>Work category</label>
@@ -1812,6 +1851,7 @@ INDEX_HTML = r"""<!doctype html>
             <div class="row">
               <label><input id="checkinFood" type="checkbox" style="width:auto;"> Food on plan</label>
               <label><input id="checkinReadingCompleted" type="checkbox" style="width:auto;"> Daily reading complete</label>
+              <label><input id="checkinFitnessCompleted" type="checkbox" style="width:auto;"> Fitness complete</label>
               <label><input id="checkinWorkRecurring" type="checkbox" style="width:auto;"> Recurring</label>
             </div>
             <label>Work task</label>
@@ -1828,11 +1868,39 @@ INDEX_HTML = r"""<!doctype html>
           </div>
           <div class="tracker-view" data-tracker-view="journal">
             <h2>Journal</h2>
+            <label>Prompt</label>
+            <input id="journalPrompt" value="General reflection.">
+            <label>Mood</label>
+            <input id="journalMood" type="number" min="1" max="10" value="5">
+            <label>Entry</label>
+            <textarea id="journalEntry"></textarea>
+            <button class="inline primary" onclick="saveJournalEntry()">Save Journal Entry</button>
             <div id="journalList"></div>
           </div>
-          <div class="tracker-view" data-tracker-view="physical">
-            <h2>Physical</h2>
-            <div id="physicalList"></div>
+          <div class="tracker-view" data-tracker-view="fitness">
+            <h2>Fitness</h2>
+            <div class="field-grid">
+              <div>
+                <label>Session type</label>
+                <input id="fitnessSessionType" value="Fitness">
+              </div>
+              <div>
+                <label>Exercises</label>
+                <input id="fitnessExercises" placeholder="Forward Fold, Walk, Strength">
+              </div>
+              <div>
+                <label>Minutes</label>
+                <input id="fitnessMinutes" type="number" min="0" value="0">
+              </div>
+              <div>
+                <label>Progress</label>
+                <input id="fitnessProgress">
+              </div>
+            </div>
+            <label>Notes</label>
+            <textarea id="fitnessNotes"></textarea>
+            <button class="inline primary" onclick="saveFitnessEntry()">Save Fitness Entry</button>
+            <div id="fitnessList"></div>
           </div>
         </div>
       </div>
@@ -1890,13 +1958,15 @@ INDEX_HTML = r"""<!doctype html>
             <button class="active" data-project="home">Home Maintenance</button>
             <button data-project="vehicle">Vehicle Maintenance</button>
             <button data-project="tech">Tech Projects</button>
-            <button data-project="chores">Chores</button>
           </div>
+          <label>Project category</label>
+          <select id="projectCategoryFilter"></select>
           <p class="muted" id="projectCategoryDescription"></p>
         </div>
         <div class="panel">
           <h2>Project Todo</h2>
-          <input type="hidden" id="projectTodoCategory" value="home">
+          <label>Category</label>
+          <select id="projectTodoCategory"></select>
           <label>Title</label>
           <input id="projectTodoTitle">
           <div class="row">
@@ -2016,10 +2086,21 @@ INDEX_HTML = r"""<!doctype html>
     document.querySelectorAll('#projectTabs button').forEach(button => {
       button.addEventListener('click', () => {
         selectedProjectCategory = button.dataset.project;
-        document.getElementById('projectTodoCategory').value = selectedProjectCategory;
         selectedProjectTodoId = null;
         renderProjects();
       });
+    });
+
+    document.getElementById('projectCategoryFilter').addEventListener('change', event => {
+      selectedProjectCategory = event.target.value;
+      selectedProjectTodoId = null;
+      renderProjects();
+    });
+
+    document.getElementById('projectTodoCategory').addEventListener('change', event => {
+      selectedProjectCategory = event.target.value;
+      selectedProjectTodoId = null;
+      renderProjects();
     });
 
     document.getElementById('companionSelect').addEventListener('change', async event => {
@@ -2123,7 +2204,7 @@ INDEX_HTML = r"""<!doctype html>
       document.getElementById('dashDirectives').textContent = state.directives.length;
       document.getElementById('dashDirectiveDetail').textContent = `${directiveSummary.issued} issued, ${directiveSummary.complete} complete, ${directiveSummary.failed} failed, ${directiveSummary.proof_required} proof required`;
       document.getElementById('dashPhysical').textContent = summary.physical_entries;
-      document.getElementById('dashPhysicalDetail').textContent = latest ? `${latest.body.exercise_minutes || 0} exercise minutes, ${latest.body.sleep_hours || 0}h sleep latest` : 'No daily check-in yet.';
+      document.getElementById('dashPhysicalDetail').textContent = latest ? `${latest.body.fitness_completed ? 'fitness complete' : 'fitness open'}, ${latest.body.sleep_hours || 0}h sleep latest` : 'No daily check-in yet.';
       document.getElementById('dashSpirit').textContent = latest ? (latest.spirit.scripture ? 'read' : 'open') : '--';
       document.getElementById('dashSpiritDetail').textContent = latest ? `${latest.spirit.prayer ? 'prayer' : 'no prayer logged'} / ${latest.spirit.reading_status || 'no reading status'}` : 'No spiritual check-in yet.';
       document.getElementById('dashWorkCloud').innerHTML = renderTagCloud(state.trackers.work_categories, state.trackers.task_categories);
@@ -2246,10 +2327,10 @@ INDEX_HTML = r"""<!doctype html>
         const statusClass = `status-${escapeHtml(String(d.status || 'issued').toLowerCase())}`;
         const proof = d.proof_required ? 'required' : '';
         const details = d.details ? escapeHtml(d.details) : '<span class="muted">No details supplied.</span>';
-        return `<tr><td>${escapeHtml(d.id)}</td><td>${escapeHtml(d.issuer)}</td><td><strong class="directive-title">${escapeHtml(d.title)}</strong><div class="directive-detail">${details}</div></td><td><span class="pill ${statusClass}">${escapeHtml(d.status)}</span></td><td>${escapeHtml(String(d.priority || ''))}</td><td>${escapeHtml(d.due_at || '')}</td><td>${escapeHtml(proof)}</td><td><button class="inline" onclick="setDirectiveStatus('${escapeJs(d.id)}','complete')">Complete</button> <button class="inline" onclick="setDirectiveStatus('${escapeJs(d.id)}','failed')">Fail</button> <button class="inline" onclick="setDirectiveStatus('${escapeJs(d.id)}','issued')">Reopen</button></td></tr>`;
+        return `<tr><td>${escapeHtml(d.id)}</td><td>${escapeHtml(d.issuer)}</td><td>${escapeHtml(d.created_at || '')}</td><td><strong class="directive-title">${escapeHtml(d.title)}</strong><div class="directive-detail">${details}</div></td><td><span class="pill ${statusClass}">${escapeHtml(d.status)}</span></td><td>${escapeHtml(String(d.priority || ''))}</td><td>${escapeHtml(d.due_at || '')}</td><td>${escapeHtml(proof)}</td><td><button class="inline" onclick="setDirectiveStatus('${escapeJs(d.id)}','complete')">Complete</button> <button class="inline" onclick="setDirectiveStatus('${escapeJs(d.id)}','failed')">Fail</button> <button class="inline" onclick="setDirectiveStatus('${escapeJs(d.id)}','issued')">Reopen</button></td></tr>`;
       }).join('');
-      const empty = '<tr><td colspan="8" class="muted">No directives in this status.</td></tr>';
-      document.getElementById('directiveList').innerHTML = `<div class="scrollbox"><table><thead><tr><th>ID</th><th>Issuer</th><th>Command</th><th>Status</th><th>Priority</th><th>Due</th><th>Proof</th><th>Actions</th></tr></thead><tbody>${rows || empty}</tbody></table></div>`;
+      const empty = '<tr><td colspan="9" class="muted">No directives in this status.</td></tr>';
+      document.getElementById('directiveList').innerHTML = `<div class="scrollbox"><table><thead><tr><th>ID</th><th>Issuer</th><th>Date Added</th><th>Command</th><th>Status</th><th>Priority</th><th>Due</th><th>Proof</th><th>Actions</th></tr></thead><tbody>${rows || empty}</tbody></table></div>`;
     }
 
     function renderProof() {
@@ -2263,12 +2344,12 @@ INDEX_HTML = r"""<!doctype html>
 
     function renderTrackers() {
       const summary = state.trackers.summary;
-      document.getElementById('trackerSummary').innerHTML = `<span class="pill">${summary.checkin_entries} check-ins</span> <span class="pill">${summary.journal_entries} journal</span> <span class="pill">${summary.task_entries} task logs</span> <span class="pill">${summary.physical_entries} physical logs</span> ${renderTagCloud(state.trackers.work_categories, state.trackers.task_categories)}`;
+      document.getElementById('trackerSummary').innerHTML = `<span class="pill">${summary.checkin_entries} check-ins</span> <span class="pill">${summary.journal_entries} journal</span> <span class="pill">${summary.task_entries} task logs</span> <span class="pill">${summary.physical_entries} fitness logs</span> ${renderTagCloud(state.trackers.work_categories, state.trackers.task_categories)}`;
       document.getElementById('dailySummary').innerHTML = renderDailySummary();
       renderTrackerTabs();
       document.getElementById('checkinList').innerHTML = renderCheckins(state.trackers.checkins);
       document.getElementById('journalList').innerHTML = renderSimpleList(state.trackers.journal, item => `${item.timestamp || ''} | mood ${item.mood || ''} | ${item.prompt || ''}`);
-      document.getElementById('physicalList').innerHTML = renderSimpleList(state.trackers.physical, item => `${item.timestamp || ''} | ${item.session_type || ''} | ${(item.exercises || []).join(', ')} | ${item.duration_minutes || 0} min`);
+      document.getElementById('fitnessList').innerHTML = renderSimpleList(state.trackers.physical, item => `${item.timestamp || ''} | ${item.session_type || ''} | ${(item.exercises || []).join(', ')} | ${item.duration_minutes || 0} min | ${item.notes || ''}`);
     }
 
     function renderDailySummary() {
@@ -2282,7 +2363,7 @@ INDEX_HTML = r"""<!doctype html>
       return `<div class="grid" style="margin-top:12px;">
         <div class="panel"><h3>Latest Check-In</h3>${latest ? renderCheckinCard(latest) : '<p class="muted">No entries.</p>'}</div>
         <div class="panel"><h3>Spiritual</h3><span class="pill">${escapeHtml(readingProgress.bible_percent || 0)}% Bible read</span><span class="pill">${escapeHtml(readingProgress.bible_completed || 0)} / ${escapeHtml(readingProgress.bible_total || 0)} chapters</span><p class="muted">${escapeHtml(spiritual.reading_status || 'No reading status.')}</p></div>
-        <div class="panel"><h3>Physical</h3><p class="muted">${escapeHtml(body.exercise_minutes || 0)} exercise minutes, ${escapeHtml(body.sleep_hours || 0)}h sleep latest.</p></div>
+        <div class="panel"><h3>Fitness</h3><p class="muted">${body.fitness_completed ? 'Fitness complete' : 'Fitness open'}, ${escapeHtml(body.sleep_hours || 0)}h sleep latest.</p></div>
         <div class="panel"><h3>Projects</h3><p class="muted">${escapeHtml(openProjects)} open project todo(s).</p><p class="muted">${escapeHtml(work.category || '')} ${escapeHtml(work.task_name || '')}</p></div>
       </div>`;
     }
@@ -2344,10 +2425,12 @@ INDEX_HTML = r"""<!doctype html>
 
     function renderSpiritualSummary() {
       const progress = state.reading_progress || {};
+      const psalm119 = progress.psalm_119 || {};
       const readings = ((state.daily_reading_schedule || {}).readings || []);
       const dailyRead = readings.filter(reading => isReadingComplete(reading.id)).length;
       document.getElementById('spiritualSummary').innerHTML = `<div class="grid">
         <div><h3>Bible Progress</h3><span class="pill">${escapeHtml(progress.bible_percent || 0)}% read</span><span class="pill">${escapeHtml(progress.bible_completed || 0)} / ${escapeHtml(progress.bible_total || 0)} chapters</span></div>
+        <div><h3>Psalm 119 Sections</h3><span class="pill">${escapeHtml(psalm119.percent || 0)}% read</span><span class="pill">${escapeHtml(psalm119.completed || 0)} / ${escapeHtml(psalm119.total || 0)} sections</span></div>
         <div><h3>Daily Reading</h3><span class="pill">${escapeHtml(dailyRead)} / ${escapeHtml(readings.length)} read today</span><p class="muted">${escapeHtml((state.daily_reading_schedule || {}).date || '')}</p></div>
       </div>`;
     }
@@ -2418,7 +2501,9 @@ INDEX_HTML = r"""<!doctype html>
       document.querySelectorAll('#projectTabs button').forEach(button => {
         button.classList.toggle('active', button.dataset.project === selectedProjectCategory);
       });
+      renderProjectCategorySelects(projects.categories || {});
       document.getElementById('projectTodoCategory').value = selectedProjectCategory;
+      document.getElementById('projectCategoryFilter').value = selectedProjectCategory;
       updateProjectCategoryText();
       const todos = (projects.todos || []).filter(todo => todo.category === selectedProjectCategory);
       if (!todos.some(todo => todo.id === selectedProjectTodoId)) selectedProjectTodoId = todos.length ? todos[0].id : null;
@@ -2429,6 +2514,12 @@ INDEX_HTML = r"""<!doctype html>
           }).join('')
         : '<p class="muted">No projects in this category.</p>';
       renderProjectTodoDetail();
+    }
+
+    function renderProjectCategorySelects(categories) {
+      const options = Object.entries(categories).map(([key, label]) => `<option value="${escapeHtml(key)}">${escapeHtml(label)}</option>`).join('');
+      document.getElementById('projectCategoryFilter').innerHTML = options;
+      document.getElementById('projectTodoCategory').innerHTML = options;
     }
 
     function updateProjectCategoryText() {
@@ -2483,6 +2574,7 @@ INDEX_HTML = r"""<!doctype html>
       });
       const data = await handleResponse(res);
       selectedProjectTodoId = data.todo.id;
+      selectedProjectCategory = data.todo.category;
       for (const id of ['projectTodoTitle', 'projectTodoStartDate', 'projectTodoDueDate', 'projectTodoOffering', 'projectTodoExpenses', 'projectTodoTasks', 'projectTodoWorkLog', 'projectTodoNotes', 'projectTodoNextStep']) {
         document.getElementById(id).value = '';
       }
@@ -2519,8 +2611,9 @@ INDEX_HTML = r"""<!doctype html>
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(projectTodoBodyFromForm())
       });
-      await handleResponse(res);
-      selectedProjectTodoId = todo.id;
+      const data = await handleResponse(res);
+      selectedProjectTodoId = data.todo.id;
+      selectedProjectCategory = data.todo.category;
       await loadState();
     }
 
@@ -2543,6 +2636,43 @@ INDEX_HTML = r"""<!doctype html>
       await loadState();
     }
 
+    async function saveJournalEntry() {
+      const body = {
+        prompt: document.getElementById('journalPrompt').value,
+        mood: document.getElementById('journalMood').value,
+        entry: document.getElementById('journalEntry').value,
+      };
+      const res = await fetch('/api/journal', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+      await handleResponse(res);
+      document.getElementById('journalEntry').value = '';
+      await loadState();
+    }
+
+    async function saveFitnessEntry() {
+      const body = {
+        session_type: document.getElementById('fitnessSessionType').value,
+        exercises: document.getElementById('fitnessExercises').value,
+        duration_minutes: document.getElementById('fitnessMinutes').value,
+        progress: document.getElementById('fitnessProgress').value,
+        notes: document.getElementById('fitnessNotes').value,
+      };
+      const res = await fetch('/api/fitness', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+      await handleResponse(res);
+      for (const id of ['fitnessExercises', 'fitnessProgress', 'fitnessNotes']) {
+        document.getElementById(id).value = '';
+      }
+      document.getElementById('fitnessMinutes').value = '0';
+      await loadState();
+    }
+
     async function saveCheckin() {
       const body = {
         date: document.getElementById('checkinDate').value,
@@ -2550,9 +2680,7 @@ INDEX_HTML = r"""<!doctype html>
         energy: document.getElementById('checkinEnergy').value,
         sleep_hours: document.getElementById('checkinSleep').value,
         food_on_plan: document.getElementById('checkinFood').checked,
-        exercise_minutes: document.getElementById('checkinExerciseMinutes').value,
-        exercise_type: document.getElementById('checkinExerciseType').value,
-        weight: document.getElementById('checkinWeight').value,
+        fitness_completed: document.getElementById('checkinFitnessCompleted').checked,
         prayer: false,
         scripture: document.getElementById('checkinReadingCompleted').checked,
         reading_plan: '',
@@ -2585,7 +2713,7 @@ INDEX_HTML = r"""<!doctype html>
         body: JSON.stringify(body)
       });
       await handleResponse(res);
-      for (const id of ['checkinExerciseType', 'checkinWeight', 'checkinWorkTask', 'checkinWorkDifficulty', 'checkinWorkResult', 'checkinNextStep', 'checkinNote']) {
+      for (const id of ['checkinWorkTask', 'checkinWorkDifficulty', 'checkinWorkResult', 'checkinNextStep', 'checkinNote']) {
         document.getElementById(id).value = '';
       }
       await loadState();
@@ -2611,7 +2739,8 @@ INDEX_HTML = r"""<!doctype html>
       const mind = item.mind || {};
       const spirit = item.spirit || {};
       const readingStatus = spirit.reading_completed ? 'daily reading complete' : 'daily reading open';
-      return `<strong>${escapeHtml(item.date || item.id)}</strong><br><span class="muted">mood ${escapeHtml(mind.mood || '')}, energy ${escapeHtml(body.energy || '')}, sleep ${escapeHtml(body.sleep_hours || 0)}h, exercise ${escapeHtml(body.exercise_minutes || 0)}m</span><br><span class="muted">${escapeHtml(work.category || '')} ${escapeHtml(work.minutes || 0)}m | ${escapeHtml(work.task_name || '')} | next ${escapeHtml(work.next_step || '')}</span><br><span class="muted">${escapeHtml(readingStatus)}</span><br><span>${escapeHtml(mind.note || work.result || '')}</span>`;
+      const fitnessStatus = body.fitness_completed ? 'fitness complete' : 'fitness open';
+      return `<strong>${escapeHtml(item.date || item.id)}</strong><br><span class="muted">mood ${escapeHtml(mind.mood || '')}, energy ${escapeHtml(body.energy || '')}, sleep ${escapeHtml(body.sleep_hours || 0)}h, ${escapeHtml(fitnessStatus)}</span><br><span class="muted">${escapeHtml(work.category || '')} ${escapeHtml(work.minutes || 0)}m | ${escapeHtml(work.task_name || '')} | next ${escapeHtml(work.next_step || '')}</span><br><span class="muted">${escapeHtml(readingStatus)}</span><br><span>${escapeHtml(mind.note || work.result || '')}</span>`;
     }
 
     function renderTagCloud(primary, secondary) {
@@ -2717,6 +2846,12 @@ class CompanionWebHandler(BaseHTTPRequestHandler):
             elif path == "/api/checkins":
                 checkin = create_checkin(self.read_json_body())
                 self.send_json({"message": f"Saved {checkin['id']}.", "checkin": checkin})
+            elif path == "/api/journal":
+                entry = create_journal_entry(self.read_json_body())
+                self.send_json({"message": "Saved journal entry.", "entry": entry})
+            elif path == "/api/fitness":
+                entry = create_fitness_entry(self.read_json_body())
+                self.send_json({"message": "Saved fitness entry.", "entry": entry})
             elif path == "/api/project-todos":
                 todo = create_project_todo(self.read_json_body())
                 self.send_json({"message": f"Created {todo['id']}.", "todo": todo})

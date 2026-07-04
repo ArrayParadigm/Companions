@@ -26,7 +26,7 @@ python Companion_Web.py --host 127.0.0.1 --port 8787
 - `control_data/reading_progress.json` stores persistent Bible chapter completion.
 - `proof_vault/` stores uploaded proof files.
 - `project_assets/` stores uploaded project files, receipts, and pictures.
-- `tracker_data/` stores imported tracker JSON snapshots used by the dashboard.
+- `tracker_data/` stores journal, task, and fitness tracker JSON used by the dashboard and entry forms.
 - `kjv.txt` is the KJV source used by the Spiritual Daily Reading schedule.
 - `deploy_scripts/` holds Linux Apache/systemd deployment helpers.
 - `copyover.bat` packages the current console for the Windows-to-Linux handoff.

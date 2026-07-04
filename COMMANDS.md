@@ -51,8 +51,9 @@ control_data/daily_checkins.json
 Each check-in uses nested `body`, `mind`, `spirit`, `work`, and `relationships`
 sections so the dashboard can render daily state, history, and category summaries.
 The `spirit` section only records the Daily Check-ins reading-complete
-confirmation. Detailed Bible chapter progress is managed from the Spiritual tab
-and stored in:
+confirmation. Fitness detail is entered from the Fitness tab; Daily Check-ins
+only stores a fitness-complete checkbox. Detailed Bible chapter progress is
+managed from the Spiritual tab and stored in:
 
 ```text
 control_data/reading_progress.json
@@ -67,6 +68,7 @@ control_data/project_todos.json
 ```
 
 Project categories are Home Maintenance, Vehicle Maintenance, Tech Projects, and Chores.
+Chores is selected as a category/filter, not as a top Projects tab.
 Each todo opens as a separate project page with status, date added, date started,
 due date, expenses, uploaded expense/task/work-log files, receipts, pictures,
 tasks, work log, category-specific info, notes, and next step. Open project

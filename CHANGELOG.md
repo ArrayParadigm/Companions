@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.1.11 - 2026-07-04
+
+### Added
+
+- Added Journal entry submission from the Journal tab.
+- Added a Fitness tab with entry submission backed by the existing fitness/physical tracker data.
+- Added Psalm 119 section progress to Spiritual Summary, using all 22 Psalm 119 daily sections.
+- Added Date Added display to the Directive table and backfilled `created_at` when old directives are updated.
+
+### Changed
+
+- Bumped the release file to `Version-0.1.11.md`.
+- Changed Chores from a Projects tab into a selectable project category/filter.
+- Removed detailed fitness fields from Daily Check-ins; the daily form now only keeps a Fitness complete checkbox.
+
 ## 0.1.10 - 2026-07-04
 
 ### Added
