@@ -1,5 +1,18 @@
 # Test Log
 
+## 2026-07-04 - 0.1.10 TODO Sprint
+
+| Severity | Area | Result | Notes |
+| --- | --- | --- | --- |
+| Info | Static compile | Pass | `python -m py_compile Companion_Web.py Memory_Manager.py`. |
+| Info | Compileall | Pass | `python -m compileall Companion_Web.py Memory_Manager.py`. |
+| Info | HTML surface | Pass | Static marker check found Chores, project delete handlers, standalone page delete/save controls, date added/date started text, expense/task/work-log upload labels, and tech repo/environment wording; no `projectSummary` UI container remains. |
+| Info | API project smoke | Pass | Temporary server exposed the Chores category, returned tech-specific repo/environment wording, created a Tech project with date started, rendered the standalone edit page, patched it into Chores, uploaded a work-log file, deleted the project, and removed it from state. |
+| Info | JSON validation | Pass | `companion-files.json`, `control_data/*.json`, and `tracker_data/*.json` parse successfully. |
+| Info | Copyover check | Pass | `cmd /c copyover.bat --check` detected `D:\000_Files\002_Projects\EVE\MS\Companions-1`, version `0.1.10`, required `kjv.txt`, and copied no files. |
+| Info | Ignore audit | Pass | `git check-ignore -v` matched pycache, backups, proof uploads, project uploads, virtualenvs, build/dist output, logs, archives, and OS noise. |
+| Info | Whitespace | Pass | `git diff --check`; only expected LF-to-CRLF warnings from Git autocrlf. |
+
 ## 2026-07-04 - 0.1.9 TODO Sprint
 
 | Severity | Area | Result | Notes |

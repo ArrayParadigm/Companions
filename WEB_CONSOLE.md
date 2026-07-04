@@ -41,8 +41,10 @@ http://127.0.0.1:8787
 - Proof Vault stores proof metadata and uploaded proof files under `proof_vault/`, with download links for uploaded files.
 - Daily Check-ins read the existing emotional journal, productivity tracker, and physical tracker JSON files, with summary, check-in, journal, and physical tabs.
 - Spiritual owns daily reading, extra reading, persistent Bible chapter progress, and prayer categories for gratitude, requests, repentance, service, and closeness.
-- Projects has Home Maintenance, Vehicle Maintenance, and Tech Projects tabs with project lists that open new-tab project pages.
-- Project pages track dates, expenses, scanned receipts, pictures, tasks, work logs, offering info, notes, and next steps.
+- Projects has Home Maintenance, Vehicle Maintenance, Tech Projects, and Chores tabs with category project lists that open new-tab project pages.
+- Tech projects use repo/environment/access wording instead of physical-location wording.
+- Project pages track date added, date started, due date, expenses, uploaded expense/task/work-log files, receipts, pictures, tasks, work logs, category-specific info, notes, and next steps.
+- Project pages can edit/save projects and delete them after confirmation.
 - Daily Check-ins stores a nested daily journal in `control_data/daily_checkins.json` and keeps only one spiritual confirmation: daily reading complete.
 - Spiritual Daily Reading carries forward the old Java daily reading schedule using `kjv.txt`: daily Proverbs, five Psalms, and Acts.
 - Spiritual Extra Reading can open whole Bible chapters and stores persistent chapter completion progress.
@@ -92,7 +94,7 @@ Archive behavior:
 - Memory packets: `Nyx-memories.md`, `riven-memories.md`, `Vectorium-memories.md`, `Veyra_memories.md`
 - Tracker imports used by Daily Check-ins: `tracker_data/journal.json`, `tracker_data/tasks.json`, `tracker_data/physical.json`
 - Project todo runtime data: `control_data/project_todos.json`
-- Project receipts and pictures: `project_assets/`
+- Project files, receipts, and pictures: `project_assets/`
 - KJV source: `kjv.txt`
 - Bible chapter reading progress: `control_data/reading_progress.json`
 

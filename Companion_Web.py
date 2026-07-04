@@ -45,6 +45,30 @@ PROJECT_CATEGORIES = {
     "home": "Home Maintenance",
     "vehicle": "Vehicle Maintenance",
     "tech": "Tech Projects",
+    "chores": "Chores",
+}
+
+PROJECT_CATEGORY_DETAILS = {
+    "home": {
+        "context_label": "Materials / Location / Vendor Info",
+        "context_empty": "No materials, location, or vendor info yet.",
+        "description": "Household repairs, maintenance, improvements, and physical-property work.",
+    },
+    "vehicle": {
+        "context_label": "Vehicle / Parts / Shop Info",
+        "context_empty": "No vehicle, parts, or shop info yet.",
+        "description": "Vehicle maintenance, repair notes, parts, service records, and inspection work.",
+    },
+    "tech": {
+        "context_label": "Repo / Environment / Access Notes",
+        "context_empty": "No repo, environment, dependency, or deployment notes yet.",
+        "description": "Software, hardware, automation, repos, environments, tickets, and deployment work.",
+    },
+    "chores": {
+        "context_label": "Area / Supplies / Recurrence",
+        "context_empty": "No area, supplies, or recurrence info yet.",
+        "description": "Recurring upkeep, cleaning, organizing, errands, and routine home tasks.",
+    },
 }
 
 
@@ -457,22 +481,28 @@ def normalize_project_category(value):
     return "home"
 
 
+def project_category_detail(category):
+    return PROJECT_CATEGORY_DETAILS.get(normalize_project_category(category), PROJECT_CATEGORY_DETAILS["home"])
+
+
 def create_project_todo(data):
     store = project_todo_store()
     todo_id = next_id(store, "next_project_todo_number", "PRJ")
+    started = str(data.get("date_started", data.get("start_date", "")) or "").strip()
     todo = {
         "id": todo_id,
         "category": normalize_project_category(data.get("category")),
-        "title": data.get("title", "").strip(),
-        "status": data.get("status", "open").strip() or "open",
-        "start_date": data.get("start_date", "").strip(),
-        "due_date": data.get("due_date", "").strip(),
-        "offering_info": data.get("offering_info", "").strip(),
-        "expenses": data.get("expenses", "").strip(),
-        "tasks": data.get("tasks", "").strip(),
-        "work_log": data.get("work_log", "").strip(),
-        "notes": data.get("notes", "").strip(),
-        "next_step": data.get("next_step", "").strip(),
+        "title": str(data.get("title", "") or "").strip(),
+        "status": str(data.get("status", "open") or "open").strip() or "open",
+        "start_date": started,
+        "date_started": started,
+        "due_date": str(data.get("due_date", "") or "").strip(),
+        "offering_info": str(data.get("offering_info", "") or "").strip(),
+        "expenses": str(data.get("expenses", "") or "").strip(),
+        "tasks": str(data.get("tasks", "") or "").strip(),
+        "work_log": str(data.get("work_log", "") or "").strip(),
+        "notes": str(data.get("notes", "") or "").strip(),
+        "next_step": str(data.get("next_step", "") or "").strip(),
         "assets": [],
         "created_at": now_stamp(),
         "updated_at": now_stamp(),
@@ -488,7 +518,11 @@ def update_project_todo(todo_id, data):
     store = project_todo_store()
     for todo in store.get("todos", []):
         if todo.get("id", "").lower() == todo_id.lower():
-            for key in ("title", "status", "start_date", "due_date", "offering_info", "expenses", "tasks", "work_log", "notes", "next_step"):
+            if "date_started" in data and "start_date" not in data:
+                data["start_date"] = data["date_started"]
+            if "start_date" in data and "date_started" not in data:
+                data["date_started"] = data["start_date"]
+            for key in ("title", "status", "start_date", "date_started", "due_date", "offering_info", "expenses", "tasks", "work_log", "notes", "next_step"):
                 if key in data:
                     todo[key] = str(data[key]).strip()
             if "category" in data:
@@ -496,6 +530,18 @@ def update_project_todo(todo_id, data):
             todo["updated_at"] = now_stamp()
             write_json(PROJECT_TODOS_FILE, store)
             return todo
+    raise ValueError(f"Project todo not found: {todo_id}")
+
+
+def delete_project_todo(todo_id):
+    store = project_todo_store()
+    todos = store.get("todos", [])
+    for index, todo in enumerate(todos):
+        if todo.get("id", "").lower() == todo_id.lower():
+            removed = todos.pop(index)
+            write_json(PROJECT_TODOS_FILE, store)
+            shutil.rmtree(PROJECT_ASSET_DIR / safe_name(todo_id), ignore_errors=True)
+            return removed
     raise ValueError(f"Project todo not found: {todo_id}")
 
 
@@ -546,11 +592,12 @@ def create_project_asset(form):
 def render_project_page(todo_id):
     todo = project_todo_by_id(todo_id)
     category = PROJECT_CATEGORIES.get(todo.get("category"), todo.get("category", ""))
+    detail = project_category_detail(todo.get("category"))
     assets = todo.get("assets", [])
-    asset_rows = "".join(
-        f"<li><a href='/{html_escape(asset.get('path', ''))}'>{html_escape(asset.get('type', 'asset'))}: {html_escape(asset.get('filename', ''))}</a> {html_escape(asset.get('note', ''))}</li>"
-        for asset in assets
-    ) or "<li>No receipts or pictures uploaded.</li>"
+    asset_rows = render_project_asset_rows(assets)
+    todo_json = json.dumps(todo)
+    categories_json = json.dumps(PROJECT_CATEGORIES)
+    detail_json = json.dumps(detail)
     return f"""<!doctype html>
 <html lang="en">
 <head>
@@ -558,28 +605,197 @@ def render_project_page(todo_id):
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{html_escape(todo.get('title', 'Project'))}</title>
   <style>
-    body {{ font-family: Segoe UI, system-ui, sans-serif; margin: 24px; background: #10151a; color: #edf2f7; }}
-    main {{ max-width: 920px; margin: 0 auto; }}
-    section {{ border: 1px solid #303842; border-radius: 8px; padding: 14px; margin: 12px 0; background: #181d22; }}
-    h1 {{ margin-top: 0; }}
-    pre {{ white-space: pre-wrap; font: inherit; color: #c7d0da; }}
+    body {{ font-family: Segoe UI, system-ui, sans-serif; margin: 18px; background: #10151a; color: #edf2f7; font-size: 14px; }}
+    main {{ max-width: 980px; margin: 0 auto; }}
+    section {{ border: 1px solid #303842; border-radius: 8px; padding: 12px; margin: 10px 0; background: #181d22; }}
+    h1 {{ margin: 0 0 4px; font-size: 1.55rem; }}
+    h2 {{ font-size: 1.02rem; margin: 0 0 8px; }}
+    h3 {{ font-size: .94rem; margin: 12px 0 6px; }}
+    label {{ display: block; margin: 8px 0 4px; color: #c7d0da; }}
+    input, select, textarea {{ width: 100%; box-sizing: border-box; border: 1px solid #3b4652; border-radius: 6px; background: #0d1116; color: #edf2f7; padding: 8px; font: inherit; }}
+    textarea {{ min-height: 78px; resize: vertical; }}
+    pre {{ white-space: pre-wrap; font: inherit; color: #c7d0da; margin: 0; }}
     a {{ color: #62d6b2; }}
+    .grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 10px; }}
+    .row {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; }}
+    .pill {{ display: inline-block; border: 1px solid #3b4652; border-radius: 999px; padding: 3px 8px; margin: 2px 4px 2px 0; color: #c7d0da; }}
+    .muted {{ color: #9aa7b4; }}
+    .actions {{ display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }}
+    button {{ border: 1px solid #3b4652; border-radius: 6px; background: #202832; color: #edf2f7; padding: 8px 10px; cursor: pointer; }}
+    button.primary {{ background: #1e6f58; border-color: #2a8f72; }}
+    button.danger {{ background: #6f2d2d; border-color: #9f4646; }}
+    ul {{ margin: 0; padding-left: 18px; }}
   </style>
 </head>
 <body>
   <main>
-    <h1>{html_escape(todo.get('title', 'Project'))}</h1>
-    <p>{html_escape(category)} | {html_escape(todo.get('status', 'open'))}</p>
-    <section><h2>Dates</h2><p>Start: {html_escape(todo.get('start_date', ''))} | Due: {html_escape(todo.get('due_date', ''))}</p></section>
-    <section><h2>Offering Info</h2><pre>{html_escape(todo.get('offering_info', ''))}</pre></section>
-    <section><h2>Expenses</h2><pre>{html_escape(todo.get('expenses', ''))}</pre></section>
-    <section><h2>Tasks</h2><pre>{html_escape(todo.get('tasks', ''))}</pre></section>
-    <section><h2>Work Log</h2><pre>{html_escape(todo.get('work_log', ''))}</pre></section>
-    <section><h2>Receipts And Pictures</h2><ul>{asset_rows}</ul></section>
-    <section><h2>Notes</h2><pre>{html_escape(todo.get('notes', ''))}</pre><h2>Next Step</h2><pre>{html_escape(todo.get('next_step', ''))}</pre></section>
+    <h1 id="pageTitle">{html_escape(todo.get('title', 'Project'))}</h1>
+    <p><span class="pill" id="categoryPill">{html_escape(category)}</span><span class="pill" id="statusPill">{html_escape(todo.get('status', 'open'))}</span></p>
+    <p class="muted" id="categoryDescription">{html_escape(detail.get('description', ''))}</p>
+    <section>
+      <h2>Dates</h2>
+      <p class="muted">Date added: <span id="dateAdded">{html_escape(todo.get('created_at', ''))}</span> | Date started: <span id="dateStarted">{html_escape(todo.get('date_started') or todo.get('start_date', ''))}</span> | Due: <span id="dateDue">{html_escape(todo.get('due_date', ''))}</span></p>
+    </section>
+    <section>
+      <h2>Edit</h2>
+      <div class="row">
+        <div><label>Title</label><input id="editTitle"></div>
+        <div><label>Category</label><select id="editCategory"></select></div>
+        <div><label>Status</label><select id="editStatus"><option value="open">Open</option><option value="done">Done</option><option value="blocked">Blocked</option></select></div>
+      </div>
+      <div class="row">
+        <div><label>Date started</label><input id="editDateStarted" type="date"></div>
+        <div><label>Due date</label><input id="editDueDate" type="date"></div>
+        <div><label>Next step</label><input id="editNextStep"></div>
+      </div>
+      <label id="contextLabel">{html_escape(detail.get('context_label', 'Project Info'))}</label>
+      <textarea id="editOffering"></textarea>
+      <label>Expenses</label>
+      <textarea id="editExpenses"></textarea>
+      <label>Tasks</label>
+      <textarea id="editTasks"></textarea>
+      <label>Work log</label>
+      <textarea id="editWorkLog"></textarea>
+      <label>Notes</label>
+      <textarea id="editNotes"></textarea>
+      <div class="actions">
+        <button class="primary" onclick="saveProject()">Save</button>
+        <button onclick="setStatusValue('done')">Mark Done</button>
+        <button onclick="setStatusValue('open')">Reopen</button>
+        <button class="danger" onclick="deleteProject()">Delete</button>
+      </div>
+    </section>
+    <section>
+      <h2>Uploads</h2>
+      <form id="assetForm">
+        <input type="hidden" name="todo_id" value="{html_escape(todo.get('id', ''))}">
+        <div class="row">
+          <div><label>Attach to</label><select name="type"><option value="expense">Expense file</option><option value="task">Task file</option><option value="work_log">Work log file</option><option value="receipt">Receipt</option><option value="picture">Picture</option></select></div>
+          <div><label>Note</label><input name="note"></div>
+          <div><label>File</label><input type="file" name="file"></div>
+        </div>
+        <div class="actions"><button class="primary" type="submit">Upload</button></div>
+      </form>
+    </section>
+    <section><h2>Files</h2><ul id="assetList">{asset_rows}</ul></section>
+    <section class="grid">
+      <div><h2 id="contextViewLabel">{html_escape(detail.get('context_label', 'Project Info'))}</h2><pre id="contextView">{html_escape(todo.get('offering_info', detail.get('context_empty', '')))}</pre></div>
+      <div><h2>Expenses</h2><pre id="expensesView">{html_escape(todo.get('expenses', ''))}</pre></div>
+      <div><h2>Tasks</h2><pre id="tasksView">{html_escape(todo.get('tasks', ''))}</pre></div>
+      <div><h2>Work Log</h2><pre id="workLogView">{html_escape(todo.get('work_log', ''))}</pre></div>
+      <div><h2>Notes</h2><pre id="notesView">{html_escape(todo.get('notes', ''))}</pre></div>
+    </section>
   </main>
+  <script>
+    let project = {todo_json};
+    const categories = {categories_json};
+    const initialCategoryDetails = {detail_json};
+
+    function escapeHtml(value) {{
+      return String(value || '').replace(/[&<>"']/g, char => ({{'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;'}}[char]));
+    }}
+
+    function fillForm() {{
+      document.getElementById('editTitle').value = project.title || '';
+      document.getElementById('editCategory').innerHTML = Object.entries(categories).map(([key, label]) => `<option value="${{escapeHtml(key)}}">${{escapeHtml(label)}}</option>`).join('');
+      document.getElementById('editCategory').value = project.category || 'home';
+      document.getElementById('editStatus').value = project.status || 'open';
+      document.getElementById('editDateStarted').value = project.date_started || project.start_date || '';
+      document.getElementById('editDueDate').value = project.due_date || '';
+      document.getElementById('editNextStep').value = project.next_step || '';
+      document.getElementById('editOffering').value = project.offering_info || '';
+      document.getElementById('editExpenses').value = project.expenses || '';
+      document.getElementById('editTasks').value = project.tasks || '';
+      document.getElementById('editWorkLog').value = project.work_log || '';
+      document.getElementById('editNotes').value = project.notes || '';
+    }}
+
+    function bodyFromForm() {{
+      return {{
+        title: document.getElementById('editTitle').value,
+        category: document.getElementById('editCategory').value,
+        status: document.getElementById('editStatus').value,
+        date_started: document.getElementById('editDateStarted').value,
+        start_date: document.getElementById('editDateStarted').value,
+        due_date: document.getElementById('editDueDate').value,
+        next_step: document.getElementById('editNextStep').value,
+        offering_info: document.getElementById('editOffering').value,
+        expenses: document.getElementById('editExpenses').value,
+        tasks: document.getElementById('editTasks').value,
+        work_log: document.getElementById('editWorkLog').value,
+        notes: document.getElementById('editNotes').value,
+      }};
+    }}
+
+    async function saveProject() {{
+      const res = await fetch(`/api/project-todos/${{encodeURIComponent(project.id)}}`, {{
+        method: 'PATCH',
+        headers: {{ 'Content-Type': 'application/json' }},
+        body: JSON.stringify(bodyFromForm())
+      }});
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Save failed.');
+      project = data.todo;
+      refreshView();
+      alert(data.message || 'Saved.');
+    }}
+
+    async function setStatusValue(status) {{
+      document.getElementById('editStatus').value = status;
+      await saveProject();
+    }}
+
+    async function deleteProject() {{
+      if (!confirm(`Delete project "${{project.title}}"? This removes the project record and uploaded files for it.`)) return;
+      const res = await fetch(`/api/project-todos/${{encodeURIComponent(project.id)}}`, {{ method: 'DELETE' }});
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Delete failed.');
+      document.body.innerHTML = '<main><h1>Project deleted</h1><p class="muted">This project record was removed. You can close this tab.</p></main>';
+    }}
+
+    function refreshView() {{
+      const currentDetail = categoryDetailsByKey(project.category);
+      document.getElementById('pageTitle').textContent = project.title || 'Project';
+      document.getElementById('categoryPill').textContent = categories[project.category] || project.category || 'Project';
+      document.getElementById('statusPill').textContent = project.status || 'open';
+      document.getElementById('categoryDescription').textContent = currentDetail.description || initialCategoryDetails.description || '';
+      document.getElementById('dateStarted').textContent = project.date_started || project.start_date || '';
+      document.getElementById('dateDue').textContent = project.due_date || '';
+      document.getElementById('contextLabel').textContent = currentDetail.context_label || 'Project Info';
+      document.getElementById('contextViewLabel').textContent = currentDetail.context_label || 'Project Info';
+      document.getElementById('contextView').textContent = project.offering_info || currentDetail.context_empty || '';
+      document.getElementById('expensesView').textContent = project.expenses || '';
+      document.getElementById('tasksView').textContent = project.tasks || '';
+      document.getElementById('workLogView').textContent = project.work_log || '';
+      document.getElementById('notesView').textContent = project.notes || '';
+      fillForm();
+    }}
+
+    function categoryDetailsByKey(key) {{
+      const defaults = {json.dumps(PROJECT_CATEGORY_DETAILS)};
+      return defaults[key] || defaults.home;
+    }}
+
+    document.getElementById('assetForm').addEventListener('submit', async event => {{
+      event.preventDefault();
+      const form = new FormData(event.target);
+      const res = await fetch('/api/project-assets/upload', {{ method: 'POST', body: form }});
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Upload failed.');
+      location.reload();
+    }});
+
+    fillForm();
+  </script>
 </body>
 </html>"""
+
+
+def render_project_asset_rows(assets):
+    return "".join(
+        f"<li><a href='/{html_escape(asset.get('path', ''))}'>{html_escape(asset.get('type', 'asset'))}: {html_escape(asset.get('filename', ''))}</a> {html_escape(asset.get('note', ''))}</li>"
+        for asset in assets
+    ) or "<li>No files uploaded.</li>"
 
 
 def html_escape(value):
@@ -607,6 +823,7 @@ def project_state():
             bucket["open"] += 1
     return {
         "categories": PROJECT_CATEGORIES,
+        "category_details": PROJECT_CATEGORY_DETAILS,
         "todos": todos,
         "summary": summary,
     }
@@ -1669,12 +1886,13 @@ INDEX_HTML = r"""<!doctype html>
       <div class="grid">
         <div class="panel full">
           <h2>Projects</h2>
-          <div id="projectSummary"></div>
           <div class="tab-row" id="projectTabs">
             <button class="active" data-project="home">Home Maintenance</button>
             <button data-project="vehicle">Vehicle Maintenance</button>
             <button data-project="tech">Tech Projects</button>
+            <button data-project="chores">Chores</button>
           </div>
+          <p class="muted" id="projectCategoryDescription"></p>
         </div>
         <div class="panel">
           <h2>Project Todo</h2>
@@ -1691,7 +1909,7 @@ INDEX_HTML = r"""<!doctype html>
               <input id="projectTodoDueDate" type="date">
             </div>
           </div>
-          <label>Offering info</label>
+          <label id="projectContextLabel">Materials / Location / Vendor Info</label>
           <textarea id="projectTodoOffering"></textarea>
           <label>Expenses</label>
           <textarea id="projectTodoExpenses"></textarea>
@@ -1704,15 +1922,19 @@ INDEX_HTML = r"""<!doctype html>
           <label>Next step</label>
           <input id="projectTodoNextStep">
           <button class="inline primary" onclick="createProjectTodo()">Add Project Todo</button>
+          <button class="inline" onclick="saveProjectTodo()">Save Selected</button>
         </div>
         <div class="panel">
-          <h2>Project Page</h2>
+          <h2>Selected Project</h2>
           <div id="projectTodoDetail" class="detail-box"></div>
           <form id="projectAssetForm" style="margin-top:10px;">
             <input type="hidden" name="todo_id" id="projectAssetTodoId">
-            <label>Asset type</label>
+            <label>Upload type</label>
             <select name="type">
-              <option value="receipt">Scanned receipt</option>
+              <option value="expense">Expense file</option>
+              <option value="task">Task file</option>
+              <option value="work_log">Work log file</option>
+              <option value="receipt">Receipt</option>
               <option value="picture">Picture</option>
             </select>
             <label>Note</label>
@@ -2197,13 +2419,22 @@ INDEX_HTML = r"""<!doctype html>
         button.classList.toggle('active', button.dataset.project === selectedProjectCategory);
       });
       document.getElementById('projectTodoCategory').value = selectedProjectCategory;
-      document.getElementById('projectSummary').innerHTML = Object.entries(projects.summary || {}).map(([key, item]) => `<span class="pill">${escapeHtml(item.label)} ${escapeHtml(item.open || 0)} open / ${escapeHtml(item.total || 0)} total</span>`).join('');
+      updateProjectCategoryText();
       const todos = (projects.todos || []).filter(todo => todo.category === selectedProjectCategory);
-      if (!selectedProjectTodoId && todos.length) selectedProjectTodoId = todos[0].id;
+      if (!todos.some(todo => todo.id === selectedProjectTodoId)) selectedProjectTodoId = todos.length ? todos[0].id : null;
       document.getElementById('projectTodoList').innerHTML = todos.length
-        ? todos.map(todo => `<div class="todo-row"><button class="inline" onclick="selectProjectTodo('${escapeJs(todo.id)}')">Select</button> <a class="inline primary" href="/projects/${encodeURIComponent(todo.id)}" target="_blank">Open page</a><br><strong>${escapeHtml(todo.title)}</strong><br><span class="muted">${escapeHtml(todo.status || 'open')} | next ${escapeHtml(todo.next_step || '')}</span></div>`).join('')
-        : '<p class="muted">No project todos in this category.</p>';
+        ? todos.map(todo => {
+            const selected = todo.id === selectedProjectTodoId ? '<span class="pill">selected</span>' : '';
+            return `<div class="todo-row"><strong>${escapeHtml(todo.title)}</strong> ${selected}<br><span class="muted">${escapeHtml(todo.status || 'open')} | added ${escapeHtml(todo.created_at || '')} | started ${escapeHtml(todo.date_started || todo.start_date || '')} | next ${escapeHtml(todo.next_step || '')}</span><br><button class="inline" onclick="selectProjectTodo('${escapeJs(todo.id)}')">Select</button> <a class="inline primary" href="/projects/${encodeURIComponent(todo.id)}" target="_blank">Open page</a> <button class="inline" onclick="loadProjectTodoIntoForm('${escapeJs(todo.id)}')">Edit</button> <button class="inline" onclick="deleteProjectTodo('${escapeJs(todo.id)}')">Delete</button></div>`;
+          }).join('')
+        : '<p class="muted">No projects in this category.</p>';
       renderProjectTodoDetail();
+    }
+
+    function updateProjectCategoryText() {
+      const details = (((state.projects || {}).category_details || {})[selectedProjectCategory]) || {};
+      document.getElementById('projectCategoryDescription').textContent = details.description || '';
+      document.getElementById('projectContextLabel').textContent = details.context_label || 'Project Info';
     }
 
     function selectProjectTodo(todoId) {
@@ -2218,19 +2449,20 @@ INDEX_HTML = r"""<!doctype html>
     function renderProjectTodoDetail() {
       const todo = currentProjectTodo();
       if (!todo) {
-        document.getElementById('projectTodoDetail').innerHTML = '<p class="muted">Select a project todo to open its page.</p>';
+        document.getElementById('projectTodoDetail').innerHTML = '<p class="muted">Select a project to open, edit, upload files, or delete it.</p>';
         return;
       }
       const category = ((state.projects || {}).categories || {})[todo.category] || todo.category;
-      const assets = (todo.assets || []).map(asset => `<li><a href="/${escapeHtml(asset.path)}" target="_blank">${escapeHtml(asset.type)}: ${escapeHtml(asset.filename)}</a> <span class="muted">${escapeHtml(asset.note || '')}</span></li>`).join('') || '<li class="muted">No receipts or pictures uploaded.</li>';
+      const assets = (todo.assets || []).map(asset => `<li><a href="/${escapeHtml(asset.path)}" target="_blank">${escapeHtml(asset.type)}: ${escapeHtml(asset.filename)}</a> <span class="muted">${escapeHtml(asset.note || '')}</span></li>`).join('') || '<li class="muted">No files uploaded.</li>';
       document.getElementById('projectAssetTodoId').value = todo.id;
-      document.getElementById('projectTodoDetail').innerHTML = `<h3>${escapeHtml(todo.title)}</h3><span class="pill">${escapeHtml(category)}</span><span class="pill">${escapeHtml(todo.status || 'open')}</span><a class="inline primary" href="/projects/${encodeURIComponent(todo.id)}" target="_blank">Open page</a><h3>Dates</h3><p class="muted">Start ${escapeHtml(todo.start_date || '')} | Due ${escapeHtml(todo.due_date || '')}</p><h3>Offering Info</h3><p>${escapeHtml(todo.offering_info || 'No offering info yet.')}</p><h3>Expenses</h3><p class="muted">${escapeHtml(todo.expenses || '')}</p><h3>Tasks</h3><p class="muted">${escapeHtml(todo.tasks || '')}</p><h3>Work Log</h3><p class="muted">${escapeHtml(todo.work_log || '')}</p><h3>Receipts And Pictures</h3><ul>${assets}</ul><h3>Notes</h3><p class="muted">${escapeHtml(todo.notes || '')}</p><h3>Next Step</h3><p class="muted">${escapeHtml(todo.next_step || '')}</p><button class="inline primary" onclick="setProjectTodoStatus('${escapeJs(todo.id)}','done')">Mark Done</button> <button class="inline" onclick="setProjectTodoStatus('${escapeJs(todo.id)}','open')">Reopen</button>`;
+      document.getElementById('projectTodoDetail').innerHTML = `<h3>${escapeHtml(todo.title)}</h3><span class="pill">${escapeHtml(category)}</span><span class="pill">${escapeHtml(todo.status || 'open')}</span><p class="muted">Added ${escapeHtml(todo.created_at || '')} | Started ${escapeHtml(todo.date_started || todo.start_date || '')}</p><a class="inline primary" href="/projects/${encodeURIComponent(todo.id)}" target="_blank">Open page</a> <button class="inline" onclick="loadProjectTodoIntoForm('${escapeJs(todo.id)}')">Edit</button> <button class="inline" onclick="setProjectTodoStatus('${escapeJs(todo.id)}','done')">Mark Done</button> <button class="inline" onclick="setProjectTodoStatus('${escapeJs(todo.id)}','open')">Reopen</button> <button class="inline" onclick="deleteProjectTodo('${escapeJs(todo.id)}')">Delete</button><h3>Files</h3><ul>${assets}</ul>`;
     }
 
-    async function createProjectTodo() {
-      const body = {
+    function projectTodoBodyFromForm() {
+      return {
         category: document.getElementById('projectTodoCategory').value,
         title: document.getElementById('projectTodoTitle').value,
+        date_started: document.getElementById('projectTodoStartDate').value,
         start_date: document.getElementById('projectTodoStartDate').value,
         due_date: document.getElementById('projectTodoDueDate').value,
         offering_info: document.getElementById('projectTodoOffering').value,
@@ -2240,6 +2472,10 @@ INDEX_HTML = r"""<!doctype html>
         notes: document.getElementById('projectTodoNotes').value,
         next_step: document.getElementById('projectTodoNextStep').value,
       };
+    }
+
+    async function createProjectTodo() {
+      const body = projectTodoBodyFromForm();
       const res = await fetch('/api/project-todos', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -2250,6 +2486,50 @@ INDEX_HTML = r"""<!doctype html>
       for (const id of ['projectTodoTitle', 'projectTodoStartDate', 'projectTodoDueDate', 'projectTodoOffering', 'projectTodoExpenses', 'projectTodoTasks', 'projectTodoWorkLog', 'projectTodoNotes', 'projectTodoNextStep']) {
         document.getElementById(id).value = '';
       }
+      await loadState();
+    }
+
+    function loadProjectTodoIntoForm(todoId) {
+      const todo = ((state.projects || {}).todos || []).find(item => item.id === todoId);
+      if (!todo) return;
+      selectedProjectTodoId = todo.id;
+      selectedProjectCategory = todo.category;
+      document.getElementById('projectTodoCategory').value = todo.category;
+      updateProjectCategoryText();
+      document.getElementById('projectTodoTitle').value = todo.title || '';
+      document.getElementById('projectTodoStartDate').value = todo.date_started || todo.start_date || '';
+      document.getElementById('projectTodoDueDate').value = todo.due_date || '';
+      document.getElementById('projectTodoOffering').value = todo.offering_info || '';
+      document.getElementById('projectTodoExpenses').value = todo.expenses || '';
+      document.getElementById('projectTodoTasks').value = todo.tasks || '';
+      document.getElementById('projectTodoWorkLog').value = todo.work_log || '';
+      document.getElementById('projectTodoNotes').value = todo.notes || '';
+      document.getElementById('projectTodoNextStep').value = todo.next_step || '';
+      renderProjects();
+    }
+
+    async function saveProjectTodo() {
+      const todo = currentProjectTodo();
+      if (!todo) {
+        setStatus('Select a project first.');
+        return;
+      }
+      const res = await fetch(`/api/project-todos/${encodeURIComponent(todo.id)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(projectTodoBodyFromForm())
+      });
+      await handleResponse(res);
+      selectedProjectTodoId = todo.id;
+      await loadState();
+    }
+
+    async function deleteProjectTodo(todoId) {
+      const todo = ((state.projects || {}).todos || []).find(item => item.id === todoId);
+      if (!todo || !confirm(`Delete project "${todo.title}"? This removes its uploaded files too.`)) return;
+      const res = await fetch(`/api/project-todos/${encodeURIComponent(todoId)}`, { method: 'DELETE' });
+      await handleResponse(res);
+      if (selectedProjectTodoId === todoId) selectedProjectTodoId = null;
       await loadState();
     }
 
@@ -2484,6 +2764,19 @@ class CompanionWebHandler(BaseHTTPRequestHandler):
                 todo_id = unquote(path.rsplit("/", 1)[1])
                 todo = update_project_todo(todo_id, self.read_json_body())
                 self.send_json({"message": f"Updated {todo['id']}.", "todo": todo})
+            else:
+                self.send_error_json(404, "Not found.")
+        except Exception as exc:
+            self.send_error_json(400, str(exc))
+
+    def do_DELETE(self):
+        try:
+            parsed = urlparse(self.path)
+            path = parsed.path
+            if path.startswith("/api/project-todos/"):
+                todo_id = unquote(path.rsplit("/", 1)[1])
+                todo = delete_project_todo(todo_id)
+                self.send_json({"message": f"Deleted {todo['id']}.", "todo": todo})
             else:
                 self.send_error_json(404, "Not found.")
         except Exception as exc:

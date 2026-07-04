@@ -66,9 +66,11 @@ Project todos are created from the Projects tab and stored in:
 control_data/project_todos.json
 ```
 
-Project categories are Home Maintenance, Vehicle Maintenance, and Tech Projects.
-Each todo opens as a separate project page with status, dates, expenses, scanned
-receipts, pictures, tasks, work log, offering info, notes, and next step.
+Project categories are Home Maintenance, Vehicle Maintenance, Tech Projects, and Chores.
+Each todo opens as a separate project page with status, date added, date started,
+due date, expenses, uploaded expense/task/work-log files, receipts, pictures,
+tasks, work log, category-specific info, notes, and next step. Open project
+pages can save edits or delete the project after confirmation.
 Uploaded project assets are stored in:
 
 ```text

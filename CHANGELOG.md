@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.1.10 - 2026-07-04
+
+### Added
+
+- Added a Chores project category.
+- Added project delete support with confirmation in the browser UI and a `DELETE /api/project-todos/{id}` route.
+- Added editable standalone project pages with smaller typography, date added, date started, save controls, notes, and delete controls.
+- Added project page uploads for expense files, task files, work-log files, receipts, and pictures.
+- Added category-specific project wording so Tech Projects use repo, environment, access, dependency, and deployment language.
+
+### Changed
+
+- Bumped the release file to `Version-0.1.10.md`.
+- Simplified the Projects tab so category pages show project lists instead of project summary pills.
+
 ## 0.1.9 - 2026-07-04
 
 ### Added
