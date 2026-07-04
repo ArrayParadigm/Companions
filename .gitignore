@@ -1,7 +1,42 @@
+# Python/runtime caches
 __pycache__/
 *.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Local virtual environments
+.venv/
+venv/
+env/
+
+# Logs and local server output
+*.log
 server-*.log
 server-*.out.log
 server-*.err.log
+
+# Deployment/build/transfer artifacts
 bkup/
 deploy_package/
+build/
+dist/
+*.egg-info/
+*.zip
+*.7z
+*.tar
+*.tar.gz
+
+# Local uploaded proof/runtime spillover
+proof_vault/
+
+# Editor and OS noise
+.vscode/
+.idea/
+*.swp
+*.swo
+Thumbs.db
+Desktop.ini

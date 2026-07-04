@@ -35,6 +35,15 @@ PROOF_DIR = APP_DIR / "proof_vault"
 DIRECTIVES_FILE = DATA_DIR / "directives.json"
 PROOF_FILE = DATA_DIR / "proof_metadata.json"
 CHECKINS_FILE = DATA_DIR / "daily_checkins.json"
+PROJECT_TODOS_FILE = DATA_DIR / "project_todos.json"
+KJV_FILE = APP_DIR / "kjv.txt"
+DAILY_SCHEDULE_PLAN = "KJV Daily Schedule"
+
+PROJECT_CATEGORIES = {
+    "home": "Home Maintenance",
+    "vehicle": "Vehicle Maintenance",
+    "tech": "Tech Projects",
+}
 
 
 def first_existing_path(*paths):
@@ -103,6 +112,8 @@ def ensure_data_files():
         write_json(PROOF_FILE, {"next_proof_number": 1, "proof": []})
     if not CHECKINS_FILE.exists():
         write_json(CHECKINS_FILE, {"next_checkin_number": 1, "entries": []})
+    if not PROJECT_TODOS_FILE.exists():
+        write_json(PROJECT_TODOS_FILE, {"next_project_todo_number": 1, "todos": []})
 
 
 def read_json(path, fallback):
@@ -146,6 +157,11 @@ def proof_store():
 def checkin_store():
     ensure_data_files()
     return read_json(CHECKINS_FILE, {"next_checkin_number": 1, "entries": []})
+
+
+def project_todo_store():
+    ensure_data_files()
+    return read_json(PROJECT_TODOS_FILE, {"next_project_todo_number": 1, "todos": []})
 
 
 def next_id(store, counter_name, prefix):
@@ -194,8 +210,74 @@ def clean_string_list(value):
     return [str(item).strip() for item in raw_items if str(item).strip()]
 
 
+def kjv_chapter_text(book, chapter):
+    if not KJV_FILE.exists():
+        return ""
+    target_book = str(book or "").strip().lower()
+    target_prefix = f"{int(chapter)}:"
+    next_prefix = f"{int(chapter) + 1}:"
+    found_book = False
+    found_chapter = False
+    lines = []
+    with KJV_FILE.open("r", encoding="utf-8", errors="replace") as handle:
+        for raw_line in handle:
+            line = raw_line.strip()
+            if line.startswith("BOOK:"):
+                current_book = line.split(":", 1)[1].strip().lower()
+                if found_chapter:
+                    break
+                found_book = current_book == target_book
+                continue
+            if not found_book:
+                continue
+            if line.startswith(target_prefix):
+                found_chapter = True
+            elif found_chapter and line.startswith(next_prefix):
+                break
+            if found_chapter and line:
+                lines.append(line)
+    return "\n".join(lines)
+
+
+def daily_reading_schedule(for_date=None):
+    target_date = for_date or datetime.now().date()
+    day = target_date.day
+    psalm_start = (day - 1) % 30 + 1
+    chapter_specs = [("Proverbs", day)]
+    chapter_specs.extend(("Psalms", psalm_start + offset * 30) for offset in range(5))
+    chapter_specs.append(("Acts", ((day - 1) % 28) + 1))
+    readings = []
+    for book, chapter in chapter_specs:
+        label = f"{book} {chapter}"
+        text = kjv_chapter_text(book, chapter)
+        readings.append({
+            "id": f"{book.lower()}-{chapter}",
+            "label": label,
+            "book": book,
+            "chapter": chapter,
+            "text": text,
+            "available": bool(text),
+        })
+    return {
+        "date": target_date.isoformat(),
+        "source_file": KJV_FILE.name,
+        "source_available": KJV_FILE.exists(),
+        "readings": readings,
+    }
+
+
+def current_reading_plans(schedule=None):
+    plans = copy.deepcopy(READING_PLANS)
+    schedule = schedule or daily_reading_schedule()
+    plans[DAILY_SCHEDULE_PLAN] = [
+        {"id": item["id"], "label": item["label"]}
+        for item in schedule.get("readings", [])
+    ]
+    return plans
+
+
 def reading_plan_sections(plan_name):
-    return READING_PLANS.get(str(plan_name or "").strip(), [])
+    return current_reading_plans().get(str(plan_name or "").strip(), [])
 
 
 def reading_section_label(plan_name, section_id):
@@ -205,9 +287,10 @@ def reading_section_label(plan_name, section_id):
     return str(section_id or "").strip()
 
 
-def reading_progress(checkins):
+def reading_progress(checkins, plans=None):
     progress = {}
-    for plan_name, sections in READING_PLANS.items():
+    plans = plans or current_reading_plans()
+    for plan_name, sections in plans.items():
         completed_ids = set()
         for item in checkins:
             spirit = item.get("spirit", {})
@@ -284,6 +367,78 @@ def create_checkin(data):
     store["entries"].append(entry)
     write_json(CHECKINS_FILE, store)
     return entry
+
+
+def normalize_project_category(value):
+    category = str(value or "").strip().lower()
+    if category in PROJECT_CATEGORIES:
+        return category
+    for key, label in PROJECT_CATEGORIES.items():
+        if category == label.lower():
+            return key
+    return "home"
+
+
+def create_project_todo(data):
+    store = project_todo_store()
+    todo_id = next_id(store, "next_project_todo_number", "PRJ")
+    todo = {
+        "id": todo_id,
+        "category": normalize_project_category(data.get("category")),
+        "title": data.get("title", "").strip(),
+        "status": data.get("status", "open").strip() or "open",
+        "offering_info": data.get("offering_info", "").strip(),
+        "notes": data.get("notes", "").strip(),
+        "next_step": data.get("next_step", "").strip(),
+        "created_at": now_stamp(),
+        "updated_at": now_stamp(),
+    }
+    if not todo["title"]:
+        raise ValueError("Project todo title is required.")
+    store["todos"].append(todo)
+    write_json(PROJECT_TODOS_FILE, store)
+    return todo
+
+
+def update_project_todo(todo_id, data):
+    store = project_todo_store()
+    for todo in store.get("todos", []):
+        if todo.get("id", "").lower() == todo_id.lower():
+            for key in ("title", "status", "offering_info", "notes", "next_step"):
+                if key in data:
+                    todo[key] = str(data[key]).strip()
+            if "category" in data:
+                todo["category"] = normalize_project_category(data.get("category"))
+            todo["updated_at"] = now_stamp()
+            write_json(PROJECT_TODOS_FILE, store)
+            return todo
+    raise ValueError(f"Project todo not found: {todo_id}")
+
+
+def project_state():
+    todos = project_todo_store().get("todos", [])
+    summary = {
+        key: {
+            "label": label,
+            "open": 0,
+            "done": 0,
+            "total": 0,
+        }
+        for key, label in PROJECT_CATEGORIES.items()
+    }
+    for todo in todos:
+        category = normalize_project_category(todo.get("category"))
+        bucket = summary[category]
+        bucket["total"] += 1
+        if str(todo.get("status", "open")).lower() in ("done", "complete", "completed"):
+            bucket["done"] += 1
+        else:
+            bucket["open"] += 1
+    return {
+        "categories": PROJECT_CATEGORIES,
+        "todos": todos,
+        "summary": summary,
+    }
 
 
 def companion_name_for_issuer(issuer):
@@ -688,7 +843,7 @@ def apply_commands(companion, command_text):
     }
 
 
-def tracker_data():
+def tracker_data(reading_plans=None):
     journal = read_json(TRACKER_FILES["journal"], [])
     tasks = read_json(TRACKER_FILES["tasks"], [])
     physical = read_json(TRACKER_FILES["physical"], [])
@@ -710,7 +865,7 @@ def tracker_data():
         "latest_checkin": latest_checkin,
         "task_categories": task_categories,
         "work_categories": work_categories,
-        "reading_progress": reading_progress(checkins),
+        "reading_progress": reading_progress(checkins, reading_plans),
         "summary": {
             "journal_entries": len(journal),
             "task_entries": len(tasks),
@@ -753,7 +908,9 @@ def app_state():
         companions.append(item)
 
     directives = directive_store().get("directives", [])
-    trackers = tracker_data()
+    daily_schedule = daily_reading_schedule()
+    reading_plans = current_reading_plans(daily_schedule)
+    trackers = tracker_data(reading_plans)
     return {
         "companions": companions,
         "categories": list(CATEGORIES.keys()),
@@ -761,7 +918,9 @@ def app_state():
         "directive_summary": directive_summary(directives),
         "proof": proof_store().get("proof", []),
         "trackers": trackers,
-        "reading_plans": READING_PLANS,
+        "reading_plans": reading_plans,
+        "daily_reading_schedule": daily_schedule,
+        "projects": project_state(),
     }
 
 
@@ -920,6 +1079,26 @@ INDEX_HTML = r"""<!doctype html>
     .tab-row button.active { border-color: var(--accent); color: var(--accent); }
     .tracker-view { display: none; }
     .tracker-view.active { display: block; }
+    .tab-view { display: none; }
+    .tab-view.active { display: block; }
+    .detail-box {
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #10151a;
+      padding: 10px;
+      min-height: 160px;
+    }
+    .todo-row {
+      width: 100%;
+      border: 1px solid var(--line);
+      background: #10151a;
+      color: var(--text);
+      border-radius: 6px;
+      padding: 8px;
+      margin: 6px 0;
+      text-align: left;
+      cursor: pointer;
+    }
     .directive-title { display: block; margin-bottom: 5px; }
     .directive-detail {
       white-space: pre-wrap;
@@ -943,6 +1122,23 @@ INDEX_HTML = r"""<!doctype html>
       border: 1px solid var(--line);
       border-radius: 6px;
       padding: 7px 8px;
+    }
+    .schedule-reading {
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 9px;
+      margin: 8px 0;
+      background: #10151a;
+    }
+    .scripture-text {
+      max-height: 180px;
+      overflow: auto;
+      white-space: pre-wrap;
+      color: var(--muted);
+      font-family: Georgia, serif;
+      font-size: 13px;
+      line-height: 1.45;
+      margin-top: 8px;
     }
     .status-complete { color: var(--accent); }
     .status-failed { color: var(--danger); }
@@ -971,7 +1167,9 @@ INDEX_HTML = r"""<!doctype html>
       <button data-tab="memory">Companion Memory</button>
       <button data-tab="directives">Directive Ledger</button>
       <button data-tab="proof">Proof Vault</button>
-      <button data-tab="trackers">Tracker Imports</button>
+      <button data-tab="trackers">Daily Check-ins</button>
+      <button data-tab="spiritual">Spiritual</button>
+      <button data-tab="projects">Projects</button>
       <button data-tab="council">Council Mode</button>
     </nav>
     <section id="dashboard" class="active">
@@ -1126,18 +1324,19 @@ INDEX_HTML = r"""<!doctype html>
     <section id="trackers">
       <div class="grid">
         <div class="panel full">
-          <h2>Imported Tracker Counts</h2>
-          <div id="trackerSummary"></div>
-        </div>
-        <div class="panel full">
+          <h2>Daily Check-ins</h2>
           <div class="tab-row" id="trackerTabs">
-            <button class="active" data-tracker="checkins">Daily Check-Ins</button>
+            <button class="active" data-tracker="summary">Summary</button>
+            <button data-tracker="checkins">Check-In</button>
             <button data-tracker="journal">Journal</button>
-            <button data-tracker="tasks">Tasks</button>
             <button data-tracker="physical">Physical</button>
           </div>
-          <div class="tracker-view active" data-tracker-view="checkins">
-            <h2>Daily Check-In</h2>
+          <div class="tracker-view active" data-tracker-view="summary">
+            <div id="trackerSummary"></div>
+            <div id="dailySummary"></div>
+          </div>
+          <div class="tracker-view" data-tracker-view="checkins">
+            <h2>Check-In</h2>
             <div class="field-grid">
               <div>
                 <label>Date</label>
@@ -1256,14 +1455,71 @@ INDEX_HTML = r"""<!doctype html>
             <h2>Journal</h2>
             <div id="journalList"></div>
           </div>
-          <div class="tracker-view" data-tracker-view="tasks">
-            <h2>Tasks</h2>
-            <div id="taskList"></div>
-          </div>
           <div class="tracker-view" data-tracker-view="physical">
             <h2>Physical</h2>
             <div id="physicalList"></div>
           </div>
+        </div>
+      </div>
+    </section>
+    <section id="spiritual">
+      <div class="grid">
+        <div class="panel full">
+          <h2>Spiritual</h2>
+          <div class="tab-row" id="spiritualTabs">
+            <button class="active" data-spiritual="daily">Daily Reading</button>
+            <button data-spiritual="extra">Extra Reading</button>
+            <button data-spiritual="prayer">Prayer</button>
+          </div>
+          <div class="tab-view active" data-spiritual-view="daily">
+            <div id="dailyReadingSchedule"></div>
+          </div>
+          <div class="tab-view" data-spiritual-view="extra">
+            <div id="extraReadingPlans"></div>
+          </div>
+          <div class="tab-view" data-spiritual-view="prayer">
+            <div class="tab-row" id="prayerTabs">
+              <button class="active" data-prayer="gratitude">Gratitude</button>
+              <button data-prayer="requests">Requests</button>
+              <button data-prayer="repentance">Repentance</button>
+              <button data-prayer="service">Service</button>
+              <button data-prayer="closeness">Closeness</button>
+            </div>
+            <div id="prayerCategoryDetail"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+    <section id="projects">
+      <div class="grid">
+        <div class="panel full">
+          <h2>Projects</h2>
+          <div id="projectSummary"></div>
+          <div class="tab-row" id="projectTabs">
+            <button class="active" data-project="home">Home Maintenance</button>
+            <button data-project="vehicle">Vehicle Maintenance</button>
+            <button data-project="tech">Tech Projects</button>
+          </div>
+        </div>
+        <div class="panel">
+          <h2>Project Todo</h2>
+          <input type="hidden" id="projectTodoCategory" value="home">
+          <label>Title</label>
+          <input id="projectTodoTitle">
+          <label>Offering info</label>
+          <textarea id="projectTodoOffering"></textarea>
+          <label>Notes</label>
+          <textarea id="projectTodoNotes"></textarea>
+          <label>Next step</label>
+          <input id="projectTodoNextStep">
+          <button class="inline primary" onclick="createProjectTodo()">Add Project Todo</button>
+        </div>
+        <div class="panel">
+          <h2>Project Page</h2>
+          <div id="projectTodoDetail" class="detail-box"></div>
+        </div>
+        <div class="panel full">
+          <div id="projectTodoList"></div>
         </div>
       </div>
     </section>
@@ -1279,7 +1535,11 @@ INDEX_HTML = r"""<!doctype html>
     let state = null;
     let selectedCompanion = null;
     let selectedDirectiveStatus = 'issued';
-    let selectedTrackerTab = 'checkins';
+    let selectedTrackerTab = 'summary';
+    let selectedSpiritualTab = 'daily';
+    let selectedPrayerCategory = 'gratitude';
+    let selectedProjectCategory = 'home';
+    let selectedProjectTodoId = null;
 
     document.querySelectorAll('nav button').forEach(button => {
       button.addEventListener('click', () => {
@@ -1303,6 +1563,29 @@ INDEX_HTML = r"""<!doctype html>
       button.addEventListener('click', () => {
         selectedTrackerTab = button.dataset.tracker;
         renderTrackerTabs();
+      });
+    });
+
+    document.querySelectorAll('#spiritualTabs button').forEach(button => {
+      button.addEventListener('click', () => {
+        selectedSpiritualTab = button.dataset.spiritual;
+        renderSpiritualTabs();
+      });
+    });
+
+    document.querySelectorAll('#prayerTabs button').forEach(button => {
+      button.addEventListener('click', () => {
+        selectedPrayerCategory = button.dataset.prayer;
+        renderPrayerCategory();
+      });
+    });
+
+    document.querySelectorAll('#projectTabs button').forEach(button => {
+      button.addEventListener('click', () => {
+        selectedProjectCategory = button.dataset.project;
+        document.getElementById('projectTodoCategory').value = selectedProjectCategory;
+        selectedProjectTodoId = null;
+        renderProjects();
       });
     });
 
@@ -1348,6 +1631,8 @@ INDEX_HTML = r"""<!doctype html>
       renderDirectives();
       renderProof();
       renderTrackers();
+      renderSpiritual();
+      renderProjects();
       renderCouncil();
       await loadPacket();
       renderMemoryIndex();
@@ -1540,12 +1825,27 @@ INDEX_HTML = r"""<!doctype html>
     function renderTrackers() {
       const summary = state.trackers.summary;
       document.getElementById('trackerSummary').innerHTML = `<span class="pill">${summary.checkin_entries} check-ins</span> <span class="pill">${summary.journal_entries} journal</span> <span class="pill">${summary.task_entries} task logs</span> <span class="pill">${summary.physical_entries} physical logs</span> ${renderTagCloud(state.trackers.work_categories, state.trackers.task_categories)}`;
+      document.getElementById('dailySummary').innerHTML = renderDailySummary();
       renderReadingPlanControls();
       renderTrackerTabs();
       document.getElementById('checkinList').innerHTML = renderCheckins(state.trackers.checkins);
       document.getElementById('journalList').innerHTML = renderSimpleList(state.trackers.journal, item => `${item.timestamp || ''} | mood ${item.mood || ''} | ${item.prompt || ''}`);
-      document.getElementById('taskList').innerHTML = renderSimpleList(state.trackers.tasks, item => `${item.timestamp || ''} | ${item.task_name || ''} | ${Math.round(item.duration_minutes || 0)} min | ${item.task_type || ''}`);
       document.getElementById('physicalList').innerHTML = renderSimpleList(state.trackers.physical, item => `${item.timestamp || ''} | ${item.session_type || ''} | ${(item.exercises || []).join(', ')} | ${item.duration_minutes || 0} min`);
+    }
+
+    function renderDailySummary() {
+      const latest = state.trackers.latest_checkin;
+      const projectSummary = Object.values(state.projects.summary || {});
+      const openProjects = projectSummary.reduce((total, item) => total + (item.open || 0), 0);
+      const spiritual = latest ? latest.spirit || {} : {};
+      const body = latest ? latest.body || {} : {};
+      const work = latest ? latest.work || {} : {};
+      return `<div class="grid" style="margin-top:12px;">
+        <div class="panel"><h3>Latest Check-In</h3>${latest ? renderCheckinCard(latest) : '<p class="muted">No entries.</p>'}</div>
+        <div class="panel"><h3>Spiritual</h3><span class="pill">${spiritual.prayer ? 'prayer logged' : 'prayer open'}</span><span class="pill">${spiritual.scripture ? 'scripture logged' : 'scripture open'}</span><p class="muted">${escapeHtml(spiritual.reading_status || 'No reading status.')}</p></div>
+        <div class="panel"><h3>Physical</h3><p class="muted">${escapeHtml(body.exercise_minutes || 0)} exercise minutes, ${escapeHtml(body.sleep_hours || 0)}h sleep latest.</p></div>
+        <div class="panel"><h3>Projects</h3><p class="muted">${escapeHtml(openProjects)} open project todo(s).</p><p class="muted">${escapeHtml(work.category || '')} ${escapeHtml(work.task_name || '')}</p></div>
+      </div>`;
     }
 
     function renderTrackerTabs() {
@@ -1590,6 +1890,154 @@ INDEX_HTML = r"""<!doctype html>
         return `<label><input type="checkbox" class="reading-check" value="${escapeHtml(section.id)}" ${checked} style="width:auto;"> ${escapeHtml(section.label)}</label>`;
       }).join('');
       document.getElementById('readingProgress').textContent = sections.length ? `${progress.completed || 0}/${sections.length} completed for ${planName}` : 'No reading plan selected.';
+    }
+
+    function renderDailyReadingSchedule() {
+      const schedule = state.daily_reading_schedule || {};
+      const readings = schedule.readings || [];
+      if (!schedule.source_available) {
+        document.getElementById('dailyReadingSchedule').innerHTML = '<p class="muted">KJV source file is not available.</p>';
+        return;
+      }
+      document.getElementById('dailyReadingSchedule').innerHTML = readings.map(reading => {
+        const text = reading.available ? escapeHtml(reading.text || '') : 'No text found for this chapter.';
+        return `<div class="schedule-reading"><div class="row"><strong>${escapeHtml(reading.label)}</strong><button class="inline" onclick="useScheduledReading('${escapeJs(reading.id)}')">Use</button></div><div class="scripture-text">${text}</div></div>`;
+      }).join('');
+    }
+
+    function useScheduledReading(readingId) {
+      const schedule = state.daily_reading_schedule || {};
+      const reading = (schedule.readings || []).find(item => item.id === readingId);
+      if (!reading) return;
+      document.getElementById('checkinReadingPlan').value = 'KJV Daily Schedule';
+      renderReadingSections();
+      document.getElementById('checkinReadingSection').value = reading.id;
+      renderReadingChecklist();
+      document.getElementById('checkinAssignedReading').value = reading.label;
+      const checkbox = Array.from(document.querySelectorAll('.reading-check')).find(input => input.value === reading.id);
+      if (checkbox) checkbox.checked = true;
+      document.getElementById('checkinScripture').checked = true;
+      setStatus(`Selected ${reading.label}.`);
+    }
+
+    function renderSpiritual() {
+      renderSpiritualTabs();
+      renderDailyReadingSchedule();
+      renderExtraReadingPlans();
+      renderPrayerCategory();
+    }
+
+    function renderSpiritualTabs() {
+      document.querySelectorAll('#spiritualTabs button').forEach(button => {
+        button.classList.toggle('active', button.dataset.spiritual === selectedSpiritualTab);
+      });
+      document.querySelectorAll('[data-spiritual-view]').forEach(view => {
+        view.classList.toggle('active', view.dataset.spiritualView === selectedSpiritualTab);
+      });
+    }
+
+    function renderExtraReadingPlans() {
+      const blocks = Object.entries(state.reading_plans || {})
+        .filter(([plan]) => plan !== 'KJV Daily Schedule')
+        .map(([plan, sections]) => {
+          const items = sections.map(section => `<button class="todo-row" onclick="useExtraReading('${escapeJs(plan)}','${escapeJs(section.id)}')"><strong>${escapeHtml(section.label)}</strong><br><span class="muted">${escapeHtml(plan)}</span></button>`).join('');
+          return `<div class="panel" style="margin-bottom:10px;"><h3>${escapeHtml(plan)}</h3>${items}</div>`;
+        }).join('');
+      document.getElementById('extraReadingPlans').innerHTML = blocks || '<p class="muted">No extra reading plans.</p>';
+    }
+
+    function useExtraReading(planName, sectionId) {
+      const section = ((state.reading_plans || {})[planName] || []).find(item => item.id === sectionId);
+      if (!section) return;
+      document.getElementById('checkinReadingPlan').value = planName;
+      renderReadingSections();
+      document.getElementById('checkinReadingSection').value = section.id;
+      renderReadingChecklist();
+      document.getElementById('checkinAssignedReading').value = section.label;
+      const checkbox = Array.from(document.querySelectorAll('.reading-check')).find(input => input.value === section.id);
+      if (checkbox) checkbox.checked = true;
+      document.getElementById('checkinScripture').checked = true;
+      setStatus(`Selected ${section.label}.`);
+    }
+
+    function renderPrayerCategory() {
+      document.querySelectorAll('#prayerTabs button').forEach(button => {
+        button.classList.toggle('active', button.dataset.prayer === selectedPrayerCategory);
+      });
+      const details = {
+        gratitude: ['Gratitude', 'Use the Check-In gratitude field for thanks, praise, and answered prayer notes.'],
+        requests: ['Requests', 'Use the prayer response field for requests, burdens, and follow-up answers.'],
+        repentance: ['Repentance', 'Use the repentance / forgiveness field for confession and repair notes.'],
+        service: ['Service', 'Use the service field for people helped, mercy work, and practical obedience.'],
+        closeness: ['Closeness', 'Use the felt close / far from God field for spiritual distance and nearness notes.'],
+      };
+      const [title, text] = details[selectedPrayerCategory] || details.gratitude;
+      document.getElementById('prayerCategoryDetail').innerHTML = `<div class="detail-box"><h3>${escapeHtml(title)}</h3><p class="muted">${escapeHtml(text)}</p><button class="inline" onclick="selectedTrackerTab='checkins'; renderTrackerTabs(); document.querySelector('button[data-tab=trackers]').click();">Open Check-In</button></div>`;
+    }
+
+    function renderProjects() {
+      const projects = state.projects || { categories: {}, todos: [], summary: {} };
+      document.querySelectorAll('#projectTabs button').forEach(button => {
+        button.classList.toggle('active', button.dataset.project === selectedProjectCategory);
+      });
+      document.getElementById('projectTodoCategory').value = selectedProjectCategory;
+      document.getElementById('projectSummary').innerHTML = Object.entries(projects.summary || {}).map(([key, item]) => `<span class="pill">${escapeHtml(item.label)} ${escapeHtml(item.open || 0)} open / ${escapeHtml(item.total || 0)} total</span>`).join('');
+      const todos = (projects.todos || []).filter(todo => todo.category === selectedProjectCategory);
+      if (!selectedProjectTodoId && todos.length) selectedProjectTodoId = todos[0].id;
+      document.getElementById('projectTodoList').innerHTML = todos.length
+        ? todos.map(todo => `<button class="todo-row" onclick="selectProjectTodo('${escapeJs(todo.id)}')"><strong>${escapeHtml(todo.title)}</strong><br><span class="muted">${escapeHtml(todo.status || 'open')} | next ${escapeHtml(todo.next_step || '')}</span></button>`).join('')
+        : '<p class="muted">No project todos in this category.</p>';
+      renderProjectTodoDetail();
+    }
+
+    function selectProjectTodo(todoId) {
+      selectedProjectTodoId = todoId;
+      renderProjectTodoDetail();
+    }
+
+    function currentProjectTodo() {
+      return ((state.projects || {}).todos || []).find(todo => todo.id === selectedProjectTodoId);
+    }
+
+    function renderProjectTodoDetail() {
+      const todo = currentProjectTodo();
+      if (!todo) {
+        document.getElementById('projectTodoDetail').innerHTML = '<p class="muted">Select a project todo to open its page.</p>';
+        return;
+      }
+      const category = ((state.projects || {}).categories || {})[todo.category] || todo.category;
+      document.getElementById('projectTodoDetail').innerHTML = `<h3>${escapeHtml(todo.title)}</h3><span class="pill">${escapeHtml(category)}</span><span class="pill">${escapeHtml(todo.status || 'open')}</span><h3>Offering Info</h3><p>${escapeHtml(todo.offering_info || 'No offering info yet.')}</p><h3>Notes</h3><p class="muted">${escapeHtml(todo.notes || '')}</p><h3>Next Step</h3><p class="muted">${escapeHtml(todo.next_step || '')}</p><button class="inline primary" onclick="setProjectTodoStatus('${escapeJs(todo.id)}','done')">Mark Done</button> <button class="inline" onclick="setProjectTodoStatus('${escapeJs(todo.id)}','open')">Reopen</button>`;
+    }
+
+    async function createProjectTodo() {
+      const body = {
+        category: document.getElementById('projectTodoCategory').value,
+        title: document.getElementById('projectTodoTitle').value,
+        offering_info: document.getElementById('projectTodoOffering').value,
+        notes: document.getElementById('projectTodoNotes').value,
+        next_step: document.getElementById('projectTodoNextStep').value,
+      };
+      const res = await fetch('/api/project-todos', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+      const data = await handleResponse(res);
+      selectedProjectTodoId = data.todo.id;
+      for (const id of ['projectTodoTitle', 'projectTodoOffering', 'projectTodoNotes', 'projectTodoNextStep']) {
+        document.getElementById(id).value = '';
+      }
+      await loadState();
+    }
+
+    async function setProjectTodoStatus(todoId, status) {
+      const res = await fetch(`/api/project-todos/${encodeURIComponent(todoId)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status })
+      });
+      await handleResponse(res);
+      await loadState();
     }
 
     async function saveCheckin() {
@@ -1764,6 +2212,9 @@ class CompanionWebHandler(BaseHTTPRequestHandler):
             elif path == "/api/checkins":
                 checkin = create_checkin(self.read_json_body())
                 self.send_json({"message": f"Saved {checkin['id']}.", "checkin": checkin})
+            elif path == "/api/project-todos":
+                todo = create_project_todo(self.read_json_body())
+                self.send_json({"message": f"Created {todo['id']}.", "todo": todo})
             elif path == "/api/proof/upload":
                 form = cgi.FieldStorage(
                     fp=self.rfile,
@@ -1790,6 +2241,10 @@ class CompanionWebHandler(BaseHTTPRequestHandler):
                 directive_id = unquote(path.rsplit("/", 1)[1])
                 directive = update_directive(directive_id, self.read_json_body())
                 self.send_json({"message": f"Updated {directive['id']}.", "directive": directive})
+            elif path.startswith("/api/project-todos/"):
+                todo_id = unquote(path.rsplit("/", 1)[1])
+                todo = update_project_todo(todo_id, self.read_json_body())
+                self.send_json({"message": f"Updated {todo['id']}.", "todo": todo})
             else:
                 self.send_error_json(404, "Not found.")
         except Exception as exc:

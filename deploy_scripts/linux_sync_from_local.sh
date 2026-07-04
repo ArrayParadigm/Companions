@@ -41,7 +41,7 @@ validate_source() {
     exit 1
   fi
 
-  for required in Companion_Web.py Memory_Manager.py; do
+  for required in Companion_Web.py Memory_Manager.py kjv.txt; do
     if [[ ! -f "${SOURCE_DIR}/${required}" ]]; then
       echo "Source is missing required file: ${required}"
       exit 1

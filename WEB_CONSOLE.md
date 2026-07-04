@@ -5,7 +5,7 @@ This is the web UI for the AI companion memory and control system.
 The active project root is now:
 
 ```text
-D:\000_Files\002_Projects\EVE\MS\Companions
+D:\000_Files\002_Projects\EVE\MS\Companions-1
 ```
 
 ## Start
@@ -39,9 +39,12 @@ http://127.0.0.1:8787
 - Directive Ledger stores companion-issued directives and shows task details in readable plaintext.
 - Directive commands also write a compact history memory into the issuer companion packet when the issuer is configured.
 - Proof Vault stores proof metadata and uploaded proof files under `proof_vault/`, with download links for uploaded files.
-- Tracker Imports read the existing emotional journal, productivity tracker, and physical tracker JSON files, with separate tabs for each tracker.
+- Daily Check-ins read the existing emotional journal, productivity tracker, and physical tracker JSON files, with summary, check-in, journal, and physical tabs.
+- Spiritual has daily reading, extra reading, and prayer tabs, with prayer subcategories for gratitude, requests, repentance, service, and closeness.
+- Projects has Home Maintenance, Vehicle Maintenance, and Tech Projects tabs with project todo pages and offering info.
 - Daily Check-In stores a nested daily journal in `control_data/daily_checkins.json`.
 - Bible reading plans are built into Daily Check-In with plan categories, current reading selection, completion checkboxes, and per-plan progress.
+- The old Java daily reading schedule is carried forward in the web console using `kjv.txt`: daily Proverbs, five Psalms, and Acts.
 - Dashboard separates memory, directive, spiritual, physical, and work summaries.
 - Council Mode is a handoff workflow for gathering separate companion perspectives.
 
@@ -85,7 +88,9 @@ Archive behavior:
 - Daily check-ins: `control_data/daily_checkins.json`
 - Proof uploads: `proof_vault/`; file proofs can be downloaded from the Proof Vault table.
 - Memory packets: `Nyx-memories.md`, `riven-memories.md`, `Vectorium-memories.md`, `Veyra_memories.md`
-- Tracker imports: `tracker_data/journal.json`, `tracker_data/tasks.json`, `tracker_data/physical.json`
+- Tracker imports used by Daily Check-ins: `tracker_data/journal.json`, `tracker_data/tasks.json`, `tracker_data/physical.json`
+- Project todo runtime data: `control_data/project_todos.json`
+- KJV source: `kjv.txt`
 - Bible reading plan progress: stored inside each daily check-in under the `spirit` section.
 
 The companion registry, memory packets, directive data, and proof uploads are
@@ -105,9 +110,13 @@ Run from Windows:
 copyover.bat
 ```
 
-Run it from the `Companions` folder. The packager includes source files, docs,
-deployment scripts, and `tracker_data/`, while preserving live server-owned
-companion packets, directive data, proof files, and daily check-ins during Linux sync.
+Run it from the `Companions-1` repo folder, or run `copyover.bat --check` first
+to verify the source path without writing deploy artifacts. The packager includes
+source files, docs, deployment scripts, and `tracker_data/`, while preserving
+live server-owned companion packets, directive data, proof files, daily
+check-ins, and project todos during Linux sync.
+The packager also requires and transfers `kjv.txt` for the Daily Check-In KJV
+schedule.
 
 This creates:
 

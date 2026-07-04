@@ -5,8 +5,43 @@ cls
 REM ============================
 REM  Companion Control Console deploy packager
 REM ============================
-set "src=%~dp0"
-if "%src:~-1%"=="\" set "src=%src:~0,-1%"
+set "repoRoot=D:\000_Files\002_Projects\EVE\MS\Companions-1"
+set "checkOnly=0"
+if /I "%~1"=="--check" set "checkOnly=1"
+
+set "src=%repoRoot%"
+if not exist "%src%\Companion_Web.py" (
+    set "src=%~dp0"
+    if "%src:~-1%"=="\" set "src=%src:~0,-1%"
+)
+
+if not exist "%src%\Companion_Web.py" (
+    echo ERROR: Companion_Web.py was not found.
+    echo Expected repo root:
+    echo   %repoRoot%
+    echo Fallback script root:
+    echo   %~dp0
+    pause
+    exit /b 1
+)
+
+if not exist "%src%\Memory_Manager.py" (
+    echo ERROR: Memory_Manager.py was not found in:
+    echo   %src%
+    pause
+    exit /b 1
+)
+
+if not exist "%src%\kjv.txt" (
+    echo ERROR: kjv.txt was not found in:
+    echo   %src%
+    pause
+    exit /b 1
+)
+
+echo Source repo root:
+echo   %src%
+echo.
 
 set "backupRoot=%src%\bkup\deploy_versions"
 set "deployRoot=D:\shared\MemoryManager"
@@ -38,6 +73,11 @@ set "version=%version:.md=%"
 
 echo Detected version: %version%
 
+if "%checkOnly%"=="1" (
+    echo Check mode passed. No files were copied.
+    exit /b 0
+)
+
 for /f %%T in ('powershell -NoProfile -Command "Get-Date -Format yyyyMMdd-HHmmss"') do set "stamp=%%T"
 
 REM ============================
@@ -62,8 +102,11 @@ if exist "%ziptemp%" del /Q "%ziptemp%"
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "$src = '%src%';" ^
   "$zip = '%ziptemp%';" ^
-  "$exclude = @('\bkup\','\deploy_package\','\__pycache__\');" ^
-  "$files = Get-ChildItem -LiteralPath $src -Recurse -File | Where-Object { $p = $_.FullName.Substring($src.Length); -not ($exclude | Where-Object { $p.StartsWith($_, [System.StringComparison]::OrdinalIgnoreCase) }) };" ^
+  "$excludeDirs = @('\.git\','\bkup\','\deploy_package\','\__pycache__\','\.pytest_cache\','\.mypy_cache\','\.ruff_cache\','\.venv\','\venv\','\env\','\htmlcov\','\build\','\dist\','\proof_vault\');" ^
+  "$excludeExt = @('.pyc','.pyo','.log','.zip','.7z','.tar','.gz','.tmp','.bak','.swp','.swo');" ^
+  "$excludeNames = @('Thumbs.db','Desktop.ini','.coverage');" ^
+  "$files = Get-ChildItem -LiteralPath $src -Recurse -File -Force | Where-Object { $p = $_.FullName.Substring($src.Length); $ext = $_.Extension.ToLowerInvariant(); -not ($excludeDirs | Where-Object { $p.StartsWith($_, [System.StringComparison]::OrdinalIgnoreCase) }) -and -not ($excludeExt -contains $ext) -and -not ($excludeNames -contains $_.Name) };" ^
+  "if (-not $files) { throw 'No files selected for backup archive.' };" ^
   "Compress-Archive -LiteralPath $files.FullName -DestinationPath $zip -Force"
 
 if errorlevel 1 (
@@ -85,6 +128,7 @@ echo Copying deployable web console files...
 
 copy /Y "%src%\Companion_Web.py" "%current%\Companion_Web.py" >nul
 copy /Y "%src%\Memory_Manager.py" "%current%\Memory_Manager.py" >nul
+if exist "%src%\kjv.txt" copy /Y "%src%\kjv.txt" "%current%\kjv.txt" >nul
 copy /Y "%src%\WEB_CONSOLE.md" "%current%\WEB_CONSOLE.md" >nul
 if exist "%src%\README.md" copy /Y "%src%\README.md" "%current%\README.md" >nul
 if exist "%src%\COMMANDS.md" copy /Y "%src%\COMMANDS.md" "%current%\COMMANDS.md" >nul
@@ -98,7 +142,7 @@ if errorlevel 8 goto :copy_error
 REM Do not package live companion registry, memory packets, directives, or proof.
 REM Those are server-owned runtime data once the console is deployed.
 
-REM Optional tracker import data used by the Tracker Imports tab.
+REM Optional tracker import data used by the Daily Check-ins tabs.
 if exist "%src%\tracker_data" robocopy "%src%\tracker_data" "%current%\tracker_data" /MIR /R:2 /W:2 /NFL /NDL /NJH /NJS /NC /NS /NP
 if errorlevel 8 goto :copy_error
 
@@ -132,6 +176,7 @@ REM Server helper scripts/docs for the copy target.
   echo Default Linux source: /home/paradigm/memorymanager
   echo Copy the deploy package contents there before running the sync script.
   echo Live server companion registry, memory packets, directives, and proof files are preserved by sync.
+  echo KJV reading source is packaged as kjv.txt for the Daily Check-In schedule.
   echo Daily check-ins are stored in control_data/daily_checkins.json and are preserved by sync.
   echo Tracker imports are packaged from tracker_data when present.
   echo.
