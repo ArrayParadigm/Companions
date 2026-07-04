@@ -62,6 +62,33 @@ TRACKER_FILES = {
     ),
 }
 
+READING_PLANS = {
+    "Daily Rhythm": [
+        {"id": "psalm-119-1-8", "label": "Psalm 119:1-8"},
+        {"id": "psalm-119-9-16", "label": "Psalm 119:9-16"},
+        {"id": "proverbs-1", "label": "Proverbs 1"},
+        {"id": "john-1", "label": "John 1"},
+    ],
+    "Gospels": [
+        {"id": "matthew-5", "label": "Matthew 5"},
+        {"id": "mark-1", "label": "Mark 1"},
+        {"id": "luke-15", "label": "Luke 15"},
+        {"id": "john-3", "label": "John 3"},
+    ],
+    "Epistles": [
+        {"id": "philippians-1", "label": "Philippians 1"},
+        {"id": "philippians-2", "label": "Philippians 2"},
+        {"id": "philippians-3", "label": "Philippians 3"},
+        {"id": "philippians-4", "label": "Philippians 4"},
+    ],
+    "Minor Prophets": [
+        {"id": "hosea-6", "label": "Hosea 6"},
+        {"id": "joel-2", "label": "Joel 2"},
+        {"id": "micah-6", "label": "Micah 6"},
+        {"id": "malachi-3", "label": "Malachi 3"},
+    ],
+}
+
 
 def now_stamp():
     return datetime.now().replace(microsecond=0).isoformat()
@@ -157,9 +184,55 @@ def clean_bool(value):
     return str(value).strip().lower() in ("1", "true", "yes", "y", "on", "checked")
 
 
+def clean_string_list(value):
+    if isinstance(value, list):
+        raw_items = value
+    elif isinstance(value, str):
+        raw_items = value.split(",")
+    else:
+        raw_items = []
+    return [str(item).strip() for item in raw_items if str(item).strip()]
+
+
+def reading_plan_sections(plan_name):
+    return READING_PLANS.get(str(plan_name or "").strip(), [])
+
+
+def reading_section_label(plan_name, section_id):
+    for section in reading_plan_sections(plan_name):
+        if section["id"] == section_id:
+            return section["label"]
+    return str(section_id or "").strip()
+
+
+def reading_progress(checkins):
+    progress = {}
+    for plan_name, sections in READING_PLANS.items():
+        completed_ids = set()
+        for item in checkins:
+            spirit = item.get("spirit", {})
+            if spirit.get("reading_plan") != plan_name:
+                continue
+            completed_ids.update(spirit.get("reading_checklist", []))
+        progress[plan_name] = {
+            "completed": len(completed_ids),
+            "completed_ids": sorted(completed_ids),
+            "total": len(sections),
+            "remaining": max(0, len(sections) - len(completed_ids)),
+        }
+    return progress
+
+
 def create_checkin(data):
     store = checkin_store()
     checkin_id = next_id(store, "next_checkin_number", "CHK")
+    reading_plan = data.get("reading_plan", "").strip()
+    reading_section = data.get("reading_section", "").strip()
+    reading_checklist = clean_string_list(data.get("reading_checklist"))
+    selected_section_label = reading_section_label(reading_plan, reading_section)
+    assigned_reading = data.get("assigned_reading", "").strip()
+    if not assigned_reading and selected_section_label:
+        assigned_reading = selected_section_label
     entry = {
         "id": checkin_id,
         "date": data.get("date", "").strip() or datetime.now().strftime("%Y-%m-%d"),
@@ -179,7 +252,10 @@ def create_checkin(data):
         "spirit": {
             "prayer": clean_bool(data.get("prayer")),
             "scripture": clean_bool(data.get("scripture")),
-            "assigned_reading": data.get("assigned_reading", "").strip(),
+            "reading_plan": reading_plan,
+            "reading_section": reading_section,
+            "reading_checklist": reading_checklist,
+            "assigned_reading": assigned_reading,
             "reading_completed": clean_bool(data.get("reading_completed")),
             "reading_minutes": clean_int(data.get("reading_minutes"), default=0, minimum=0),
             "reading_status": data.get("reading_status", "").strip(),
@@ -634,6 +710,7 @@ def tracker_data():
         "latest_checkin": latest_checkin,
         "task_categories": task_categories,
         "work_categories": work_categories,
+        "reading_progress": reading_progress(checkins),
         "summary": {
             "journal_entries": len(journal),
             "task_entries": len(tasks),
@@ -684,6 +761,7 @@ def app_state():
         "directive_summary": directive_summary(directives),
         "proof": proof_store().get("proof", []),
         "trackers": trackers,
+        "reading_plans": READING_PLANS,
     }
 
 
@@ -840,6 +918,32 @@ INDEX_HTML = r"""<!doctype html>
       cursor: pointer;
     }
     .tab-row button.active { border-color: var(--accent); color: var(--accent); }
+    .tracker-view { display: none; }
+    .tracker-view.active { display: block; }
+    .directive-title { display: block; margin-bottom: 5px; }
+    .directive-detail {
+      white-space: pre-wrap;
+      color: var(--text);
+      background: #10151a;
+      border-left: 3px solid var(--accent);
+      padding: 7px 8px;
+      border-radius: 4px;
+      min-width: 220px;
+    }
+    .reading-checklist {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 6px 12px;
+      margin: 8px 0;
+    }
+    .reading-checklist label {
+      margin: 0;
+      color: var(--text);
+      background: #10151a;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 7px 8px;
+    }
     .status-complete { color: var(--accent); }
     .status-failed { color: var(--danger); }
     .status-issued { color: var(--warn); }
@@ -851,7 +955,7 @@ INDEX_HTML = r"""<!doctype html>
     @media (max-width: 900px) {
       main { grid-template-columns: 1fr; }
       nav { border-right: 0; border-bottom: 1px solid var(--line); }
-      .grid, .dashboard-grid, .field-grid { grid-template-columns: 1fr; }
+      .grid, .dashboard-grid, .field-grid, .reading-checklist { grid-template-columns: 1fr; }
       .span-2 { grid-column: auto; }
     }
   </style>
@@ -1026,112 +1130,141 @@ INDEX_HTML = r"""<!doctype html>
           <div id="trackerSummary"></div>
         </div>
         <div class="panel full">
-          <h2>Daily Check-In</h2>
-          <div class="field-grid">
-            <div>
-              <label>Date</label>
-              <input id="checkinDate" type="date">
-            </div>
-            <div>
-              <label>Mood</label>
-              <input id="checkinMood" type="number" min="1" max="10" value="5">
-            </div>
-            <div>
-              <label>Energy</label>
-              <input id="checkinEnergy" type="number" min="1" max="10" value="5">
-            </div>
-            <div>
-              <label>Sleep hours</label>
-              <input id="checkinSleep" type="number" min="0" max="24" step="0.25">
-            </div>
-            <div>
-              <label>Exercise minutes</label>
-              <input id="checkinExerciseMinutes" type="number" min="0" value="0">
-            </div>
-            <div>
-              <label>Exercise type</label>
-              <input id="checkinExerciseType">
-            </div>
-            <div>
-              <label>Weight</label>
-              <input id="checkinWeight">
-            </div>
-            <div>
-              <label>Work category</label>
-              <select id="checkinWorkCategory">
-                <option>Companion Console</option>
-                <option>AscendedWorlds</option>
-                <option>Writing</option>
-                <option>Job</option>
-                <option>Household Chores</option>
-                <option>Maintenance</option>
-                <option>Spiritual Practice</option>
-                <option>Other</option>
-              </select>
-            </div>
-            <div>
-              <label>Work minutes</label>
-              <input id="checkinWorkMinutes" type="number" min="0" value="0">
-            </div>
-            <div>
-              <label>Reading status</label>
-              <select id="checkinReadingStatus">
-                <option value=""></option>
-                <option>read fully</option>
-                <option>skimmed</option>
-                <option>missed</option>
-              </select>
-            </div>
-            <div>
-              <label>Reading minutes</label>
-              <input id="checkinReadingMinutes" type="number" min="0" value="0">
-            </div>
-            <div>
-              <label>Difficulty</label>
-              <input id="checkinWorkDifficulty">
-            </div>
-            <div>
-              <label>Money spent</label>
-              <input id="checkinMoneySpent" type="number" min="0" step="0.01" value="0">
-            </div>
+          <div class="tab-row" id="trackerTabs">
+            <button class="active" data-tracker="checkins">Daily Check-Ins</button>
+            <button data-tracker="journal">Journal</button>
+            <button data-tracker="tasks">Tasks</button>
+            <button data-tracker="physical">Physical</button>
           </div>
-          <div class="row">
-            <label><input id="checkinFood" type="checkbox" style="width:auto;"> Food on plan</label>
-            <label><input id="checkinPrayer" type="checkbox" style="width:auto;"> Prayer</label>
-            <label><input id="checkinScripture" type="checkbox" style="width:auto;"> Scripture</label>
-            <label><input id="checkinReadingCompleted" type="checkbox" style="width:auto;"> Reading done</label>
-            <label><input id="checkinWorkRecurring" type="checkbox" style="width:auto;"> Recurring</label>
+          <div class="tracker-view active" data-tracker-view="checkins">
+            <h2>Daily Check-In</h2>
+            <div class="field-grid">
+              <div>
+                <label>Date</label>
+                <input id="checkinDate" type="date">
+              </div>
+              <div>
+                <label>Mood</label>
+                <input id="checkinMood" type="number" min="1" max="10" value="5">
+              </div>
+              <div>
+                <label>Energy</label>
+                <input id="checkinEnergy" type="number" min="1" max="10" value="5">
+              </div>
+              <div>
+                <label>Sleep hours</label>
+                <input id="checkinSleep" type="number" min="0" max="24" step="0.25">
+              </div>
+              <div>
+                <label>Exercise minutes</label>
+                <input id="checkinExerciseMinutes" type="number" min="0" value="0">
+              </div>
+              <div>
+                <label>Exercise type</label>
+                <input id="checkinExerciseType">
+              </div>
+              <div>
+                <label>Weight</label>
+                <input id="checkinWeight">
+              </div>
+              <div>
+                <label>Work category</label>
+                <select id="checkinWorkCategory">
+                  <option>Companion Console</option>
+                  <option>AscendedWorlds</option>
+                  <option>Writing</option>
+                  <option>Job</option>
+                  <option>Household Chores</option>
+                  <option>Maintenance</option>
+                  <option>Spiritual Practice</option>
+                  <option>Other</option>
+                </select>
+              </div>
+              <div>
+                <label>Work minutes</label>
+                <input id="checkinWorkMinutes" type="number" min="0" value="0">
+              </div>
+              <div>
+                <label>Reading plan</label>
+                <select id="checkinReadingPlan"></select>
+              </div>
+              <div>
+                <label>Current reading</label>
+                <select id="checkinReadingSection"></select>
+              </div>
+              <div>
+                <label>Reading status</label>
+                <select id="checkinReadingStatus">
+                  <option value=""></option>
+                  <option>read fully</option>
+                  <option>skimmed</option>
+                  <option>missed</option>
+                </select>
+              </div>
+              <div>
+                <label>Reading minutes</label>
+                <input id="checkinReadingMinutes" type="number" min="0" value="0">
+              </div>
+              <div>
+                <label>Difficulty</label>
+                <input id="checkinWorkDifficulty">
+              </div>
+              <div>
+                <label>Money spent</label>
+                <input id="checkinMoneySpent" type="number" min="0" step="0.01" value="0">
+              </div>
+            </div>
+            <label>Completed readings</label>
+            <div id="readingChecklist" class="reading-checklist"></div>
+            <div id="readingProgress" class="muted"></div>
+            <div class="row">
+              <label><input id="checkinFood" type="checkbox" style="width:auto;"> Food on plan</label>
+              <label><input id="checkinPrayer" type="checkbox" style="width:auto;"> Prayer</label>
+              <label><input id="checkinScripture" type="checkbox" style="width:auto;"> Scripture</label>
+              <label><input id="checkinReadingCompleted" type="checkbox" style="width:auto;"> Reading done</label>
+              <label><input id="checkinWorkRecurring" type="checkbox" style="width:auto;"> Recurring</label>
+            </div>
+            <label>Assigned reading</label>
+            <input id="checkinAssignedReading">
+            <label>Work task</label>
+            <input id="checkinWorkTask">
+            <label>Result</label>
+            <input id="checkinWorkResult">
+            <label>Next step</label>
+            <input id="checkinNextStep">
+            <label>Favorite verse</label>
+            <input id="checkinFavoriteVerse">
+            <label>Application</label>
+            <input id="checkinApplication">
+            <label>Prayer response</label>
+            <input id="checkinPrayerResponse">
+            <label>Gratitude</label>
+            <input id="checkinGratitude">
+            <label>Repentance / forgiveness</label>
+            <input id="checkinRepentance">
+            <label>Service</label>
+            <input id="checkinService">
+            <label>Felt close / far from God</label>
+            <input id="checkinFeltClose">
+            <label>Note</label>
+            <textarea id="checkinNote"></textarea>
+            <button class="inline primary" onclick="saveCheckin()">Save Check-In</button>
+            <h2 style="margin-top:14px;">Daily Check-Ins</h2>
+            <div id="checkinList"></div>
           </div>
-          <label>Assigned reading</label>
-          <input id="checkinAssignedReading">
-          <label>Work task</label>
-          <input id="checkinWorkTask">
-          <label>Result</label>
-          <input id="checkinWorkResult">
-          <label>Next step</label>
-          <input id="checkinNextStep">
-          <label>Favorite verse</label>
-          <input id="checkinFavoriteVerse">
-          <label>Application</label>
-          <input id="checkinApplication">
-          <label>Prayer response</label>
-          <input id="checkinPrayerResponse">
-          <label>Gratitude</label>
-          <input id="checkinGratitude">
-          <label>Repentance / forgiveness</label>
-          <input id="checkinRepentance">
-          <label>Service</label>
-          <input id="checkinService">
-          <label>Felt close / far from God</label>
-          <input id="checkinFeltClose">
-          <label>Note</label>
-          <textarea id="checkinNote"></textarea>
-          <button class="inline primary" onclick="saveCheckin()">Save Check-In</button>
+          <div class="tracker-view" data-tracker-view="journal">
+            <h2>Journal</h2>
+            <div id="journalList"></div>
+          </div>
+          <div class="tracker-view" data-tracker-view="tasks">
+            <h2>Tasks</h2>
+            <div id="taskList"></div>
+          </div>
+          <div class="tracker-view" data-tracker-view="physical">
+            <h2>Physical</h2>
+            <div id="physicalList"></div>
+          </div>
         </div>
-        <div class="panel full"><h2>Daily Check-Ins</h2><div id="checkinList"></div></div>
-        <div class="panel"><h2>Journal</h2><div id="journalList"></div></div>
-        <div class="panel"><h2>Tasks</h2><div id="taskList"></div></div>
-        <div class="panel full"><h2>Physical</h2><div id="physicalList"></div></div>
       </div>
     </section>
     <section id="council">
@@ -1146,6 +1279,7 @@ INDEX_HTML = r"""<!doctype html>
     let state = null;
     let selectedCompanion = null;
     let selectedDirectiveStatus = 'issued';
+    let selectedTrackerTab = 'checkins';
 
     document.querySelectorAll('nav button').forEach(button => {
       button.addEventListener('click', () => {
@@ -1165,10 +1299,29 @@ INDEX_HTML = r"""<!doctype html>
       });
     });
 
+    document.querySelectorAll('#trackerTabs button').forEach(button => {
+      button.addEventListener('click', () => {
+        selectedTrackerTab = button.dataset.tracker;
+        renderTrackerTabs();
+      });
+    });
+
     document.getElementById('companionSelect').addEventListener('change', async event => {
       selectedCompanion = event.target.value;
       await loadPacket();
       renderMemoryIndex();
+    });
+
+    document.getElementById('checkinReadingPlan').addEventListener('change', () => {
+      renderReadingSections();
+      renderReadingChecklist();
+    });
+
+    document.getElementById('checkinReadingSection').addEventListener('change', event => {
+      const selected = event.target.options[event.target.selectedIndex];
+      if (selected && !document.getElementById('checkinAssignedReading').value.trim()) {
+        document.getElementById('checkinAssignedReading').value = selected.textContent;
+      }
     });
 
     document.getElementById('checkinDate').value = new Date().toISOString().slice(0, 10);
@@ -1368,7 +1521,8 @@ INDEX_HTML = r"""<!doctype html>
       const rows = directives.map(d => {
         const statusClass = `status-${escapeHtml(String(d.status || 'issued').toLowerCase())}`;
         const proof = d.proof_required ? 'required' : '';
-        return `<tr><td>${escapeHtml(d.id)}</td><td>${escapeHtml(d.issuer)}</td><td><strong>${escapeHtml(d.title)}</strong><br><span class="muted">${escapeHtml(d.details || '')}</span></td><td><span class="pill ${statusClass}">${escapeHtml(d.status)}</span></td><td>${escapeHtml(String(d.priority || ''))}</td><td>${escapeHtml(d.due_at || '')}</td><td>${escapeHtml(proof)}</td><td><button class="inline" onclick="setDirectiveStatus('${escapeJs(d.id)}','complete')">Complete</button> <button class="inline" onclick="setDirectiveStatus('${escapeJs(d.id)}','failed')">Fail</button> <button class="inline" onclick="setDirectiveStatus('${escapeJs(d.id)}','issued')">Reopen</button></td></tr>`;
+        const details = d.details ? escapeHtml(d.details) : '<span class="muted">No details supplied.</span>';
+        return `<tr><td>${escapeHtml(d.id)}</td><td>${escapeHtml(d.issuer)}</td><td><strong class="directive-title">${escapeHtml(d.title)}</strong><div class="directive-detail">${details}</div></td><td><span class="pill ${statusClass}">${escapeHtml(d.status)}</span></td><td>${escapeHtml(String(d.priority || ''))}</td><td>${escapeHtml(d.due_at || '')}</td><td>${escapeHtml(proof)}</td><td><button class="inline" onclick="setDirectiveStatus('${escapeJs(d.id)}','complete')">Complete</button> <button class="inline" onclick="setDirectiveStatus('${escapeJs(d.id)}','failed')">Fail</button> <button class="inline" onclick="setDirectiveStatus('${escapeJs(d.id)}','issued')">Reopen</button></td></tr>`;
       }).join('');
       const empty = '<tr><td colspan="8" class="muted">No directives in this status.</td></tr>';
       document.getElementById('directiveList').innerHTML = `<div class="scrollbox"><table><thead><tr><th>ID</th><th>Issuer</th><th>Command</th><th>Status</th><th>Priority</th><th>Due</th><th>Proof</th><th>Actions</th></tr></thead><tbody>${rows || empty}</tbody></table></div>`;
@@ -1386,10 +1540,56 @@ INDEX_HTML = r"""<!doctype html>
     function renderTrackers() {
       const summary = state.trackers.summary;
       document.getElementById('trackerSummary').innerHTML = `<span class="pill">${summary.checkin_entries} check-ins</span> <span class="pill">${summary.journal_entries} journal</span> <span class="pill">${summary.task_entries} task logs</span> <span class="pill">${summary.physical_entries} physical logs</span> ${renderTagCloud(state.trackers.work_categories, state.trackers.task_categories)}`;
+      renderReadingPlanControls();
+      renderTrackerTabs();
       document.getElementById('checkinList').innerHTML = renderCheckins(state.trackers.checkins);
       document.getElementById('journalList').innerHTML = renderSimpleList(state.trackers.journal, item => `${item.timestamp || ''} | mood ${item.mood || ''} | ${item.prompt || ''}`);
       document.getElementById('taskList').innerHTML = renderSimpleList(state.trackers.tasks, item => `${item.timestamp || ''} | ${item.task_name || ''} | ${Math.round(item.duration_minutes || 0)} min | ${item.task_type || ''}`);
       document.getElementById('physicalList').innerHTML = renderSimpleList(state.trackers.physical, item => `${item.timestamp || ''} | ${item.session_type || ''} | ${(item.exercises || []).join(', ')} | ${item.duration_minutes || 0} min`);
+    }
+
+    function renderTrackerTabs() {
+      document.querySelectorAll('#trackerTabs button').forEach(button => {
+        button.classList.toggle('active', button.dataset.tracker === selectedTrackerTab);
+      });
+      document.querySelectorAll('[data-tracker-view]').forEach(view => {
+        view.classList.toggle('active', view.dataset.trackerView === selectedTrackerTab);
+      });
+    }
+
+    function renderReadingPlanControls() {
+      const planSelect = document.getElementById('checkinReadingPlan');
+      const plans = Object.keys(state.reading_plans || {});
+      const currentPlan = planSelect.value || plans[0] || '';
+      planSelect.innerHTML = plans.map(plan => `<option value="${escapeHtml(plan)}">${escapeHtml(plan)}</option>`).join('');
+      if (currentPlan && plans.includes(currentPlan)) {
+        planSelect.value = currentPlan;
+      }
+      renderReadingSections();
+      renderReadingChecklist();
+    }
+
+    function renderReadingSections() {
+      const planName = document.getElementById('checkinReadingPlan').value;
+      const sectionSelect = document.getElementById('checkinReadingSection');
+      const sections = (state.reading_plans || {})[planName] || [];
+      const currentSection = sectionSelect.value || (sections[0] ? sections[0].id : '');
+      sectionSelect.innerHTML = sections.map(section => `<option value="${escapeHtml(section.id)}">${escapeHtml(section.label)}</option>`).join('');
+      if (currentSection && sections.some(section => section.id === currentSection)) {
+        sectionSelect.value = currentSection;
+      }
+    }
+
+    function renderReadingChecklist() {
+      const planName = document.getElementById('checkinReadingPlan').value;
+      const sections = (state.reading_plans || {})[planName] || [];
+      const progress = (state.trackers.reading_progress || {})[planName] || {};
+      const completed = new Set(progress.completed_ids || []);
+      document.getElementById('readingChecklist').innerHTML = sections.map(section => {
+        const checked = completed.has(section.id) ? 'checked' : '';
+        return `<label><input type="checkbox" class="reading-check" value="${escapeHtml(section.id)}" ${checked} style="width:auto;"> ${escapeHtml(section.label)}</label>`;
+      }).join('');
+      document.getElementById('readingProgress').textContent = sections.length ? `${progress.completed || 0}/${sections.length} completed for ${planName}` : 'No reading plan selected.';
     }
 
     async function saveCheckin() {
@@ -1404,6 +1604,9 @@ INDEX_HTML = r"""<!doctype html>
         weight: document.getElementById('checkinWeight').value,
         prayer: document.getElementById('checkinPrayer').checked,
         scripture: document.getElementById('checkinScripture').checked,
+        reading_plan: document.getElementById('checkinReadingPlan').value,
+        reading_section: document.getElementById('checkinReadingSection').value,
+        reading_checklist: Array.from(document.querySelectorAll('.reading-check:checked')).map(input => input.value),
         assigned_reading: document.getElementById('checkinAssignedReading').value,
         reading_completed: document.getElementById('checkinReadingCompleted').checked,
         reading_minutes: document.getElementById('checkinReadingMinutes').value,
@@ -1456,7 +1659,22 @@ INDEX_HTML = r"""<!doctype html>
       const body = item.body || {};
       const mind = item.mind || {};
       const spirit = item.spirit || {};
-      return `<strong>${escapeHtml(item.date || item.id)}</strong><br><span class="muted">mood ${escapeHtml(mind.mood || '')}, energy ${escapeHtml(body.energy || '')}, sleep ${escapeHtml(body.sleep_hours || 0)}h, exercise ${escapeHtml(body.exercise_minutes || 0)}m</span><br><span class="muted">${escapeHtml(work.category || '')} ${escapeHtml(work.minutes || 0)}m | ${escapeHtml(work.task_name || '')} | next ${escapeHtml(work.next_step || '')}</span><br><span class="muted">prayer ${spirit.prayer ? 'yes' : 'no'} / scripture ${spirit.scripture ? 'yes' : 'no'} / reading ${spirit.reading_completed ? 'done' : 'open'} ${escapeHtml(spirit.reading_minutes || 0)}m / ${escapeHtml(spirit.reading_status || '')}</span><br><span>${escapeHtml(mind.note || spirit.application || work.result || '')}</span>`;
+      const plan = spirit.reading_plan || '';
+      const section = readingSectionLabel(plan, spirit.reading_section);
+      const completed = readingChecklistLabels(plan, spirit.reading_checklist || []);
+      const readingLine = plan
+        ? `${plan} | ${section || spirit.assigned_reading || ''} | checked: ${completed || 'none'}`
+        : `${spirit.assigned_reading || ''}`;
+      return `<strong>${escapeHtml(item.date || item.id)}</strong><br><span class="muted">mood ${escapeHtml(mind.mood || '')}, energy ${escapeHtml(body.energy || '')}, sleep ${escapeHtml(body.sleep_hours || 0)}h, exercise ${escapeHtml(body.exercise_minutes || 0)}m</span><br><span class="muted">${escapeHtml(work.category || '')} ${escapeHtml(work.minutes || 0)}m | ${escapeHtml(work.task_name || '')} | next ${escapeHtml(work.next_step || '')}</span><br><span class="muted">prayer ${spirit.prayer ? 'yes' : 'no'} / scripture ${spirit.scripture ? 'yes' : 'no'} / reading ${spirit.reading_completed ? 'done' : 'open'} ${escapeHtml(spirit.reading_minutes || 0)}m / ${escapeHtml(spirit.reading_status || '')}</span><br><span class="muted">${escapeHtml(readingLine)}</span><br><span>${escapeHtml(mind.note || spirit.application || work.result || '')}</span>`;
+    }
+
+    function readingSectionLabel(planName, sectionId) {
+      const section = ((state && state.reading_plans && state.reading_plans[planName]) || []).find(item => item.id === sectionId);
+      return section ? section.label : (sectionId || '');
+    }
+
+    function readingChecklistLabels(planName, sectionIds) {
+      return sectionIds.map(sectionId => readingSectionLabel(planName, sectionId)).filter(Boolean).join(', ');
     }
 
     function renderTagCloud(primary, secondary) {

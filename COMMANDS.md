@@ -50,3 +50,5 @@ control_data/daily_checkins.json
 
 Each check-in uses nested `body`, `mind`, `spirit`, `work`, and `relationships`
 sections so the dashboard can render daily state, history, and category summaries.
+The `spirit` section also stores Bible reading plan, selected reading, checked-off
+sections, reading minutes, and reading status from the Daily Check-In tab.

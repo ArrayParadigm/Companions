@@ -36,11 +36,12 @@ http://127.0.0.1:8787
 - `Copy Packet` gives only the raw base64 packet.
 - `Apply Commands` accepts companion memory and directive command batches.
 - The ID-only memory index exposes IDs, categories, status, weights, tags, and timestamps, but not memory content.
-- Directive Ledger stores companion-issued directives.
+- Directive Ledger stores companion-issued directives and shows task details in readable plaintext.
 - Directive commands also write a compact history memory into the issuer companion packet when the issuer is configured.
 - Proof Vault stores proof metadata and uploaded proof files under `proof_vault/`, with download links for uploaded files.
-- Tracker Imports read the existing emotional journal, productivity tracker, and physical tracker JSON files.
+- Tracker Imports read the existing emotional journal, productivity tracker, and physical tracker JSON files, with separate tabs for each tracker.
 - Daily Check-In stores a nested daily journal in `control_data/daily_checkins.json`.
+- Bible reading plans are built into Daily Check-In with plan categories, current reading selection, completion checkboxes, and per-plan progress.
 - Dashboard separates memory, directive, spiritual, physical, and work summaries.
 - Council Mode is a handoff workflow for gathering separate companion perspectives.
 
@@ -85,6 +86,7 @@ Archive behavior:
 - Proof uploads: `proof_vault/`; file proofs can be downloaded from the Proof Vault table.
 - Memory packets: `Nyx-memories.md`, `riven-memories.md`, `Vectorium-memories.md`, `Veyra_memories.md`
 - Tracker imports: `tracker_data/journal.json`, `tracker_data/tasks.json`, `tracker_data/physical.json`
+- Bible reading plan progress: stored inside each daily check-in under the `spirit` section.
 
 The companion registry, memory packets, directive data, and proof uploads are
 live server data. The deploy package does not include them, and Linux sync

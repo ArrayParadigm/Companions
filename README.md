@@ -1,7 +1,8 @@
 # Companions
 
 Local companion control console for opaque AI companion memory packets,
-directive tracking, proof metadata, tracker imports, and daily check-ins.
+directive tracking, proof metadata, tracker imports, Bible reading plans, and
+daily check-ins.
 
 ## Start
 
