@@ -1,0 +1,5 @@
+Manifest-Version: 1.0
+Main-Class: com.mycompany.dailyreadingschedule.DailyReadingSchedule
+Class-Path: .
+Created-By: 20.0.1 (Oracle Corporation)
+
