@@ -69,7 +69,7 @@ sync_files() {
     --exclude 'companion-files.json'
   )
   if [[ "${PRESERVE_SERVER_DATA}" == "1" ]]; then
-    excludes+=(--exclude control_data --exclude proof_vault)
+    excludes+=(--exclude control_data --exclude proof_vault --exclude project_assets)
   fi
 
   rsync -a --delete "${excludes[@]}" "${SOURCE_DIR}/" "${APP_DIR}/"

@@ -32,10 +32,12 @@ APP_DIR = Path(__file__).resolve().parent
 PROJECT_PARENT = APP_DIR.parent
 DATA_DIR = APP_DIR / "control_data"
 PROOF_DIR = APP_DIR / "proof_vault"
+PROJECT_ASSET_DIR = APP_DIR / "project_assets"
 DIRECTIVES_FILE = DATA_DIR / "directives.json"
 PROOF_FILE = DATA_DIR / "proof_metadata.json"
 CHECKINS_FILE = DATA_DIR / "daily_checkins.json"
 PROJECT_TODOS_FILE = DATA_DIR / "project_todos.json"
+READING_PROGRESS_FILE = DATA_DIR / "reading_progress.json"
 KJV_FILE = APP_DIR / "kjv.txt"
 DAILY_SCHEDULE_PLAN = "KJV Daily Schedule"
 
@@ -106,6 +108,7 @@ def now_stamp():
 def ensure_data_files():
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     PROOF_DIR.mkdir(parents=True, exist_ok=True)
+    PROJECT_ASSET_DIR.mkdir(parents=True, exist_ok=True)
     if not DIRECTIVES_FILE.exists():
         write_json(DIRECTIVES_FILE, {"next_directive_number": 1, "directives": []})
     if not PROOF_FILE.exists():
@@ -114,6 +117,8 @@ def ensure_data_files():
         write_json(CHECKINS_FILE, {"next_checkin_number": 1, "entries": []})
     if not PROJECT_TODOS_FILE.exists():
         write_json(PROJECT_TODOS_FILE, {"next_project_todo_number": 1, "todos": []})
+    if not READING_PROGRESS_FILE.exists():
+        write_json(READING_PROGRESS_FILE, {"completed": {}, "updated_at": ""})
 
 
 def read_json(path, fallback):
@@ -162,6 +167,11 @@ def checkin_store():
 def project_todo_store():
     ensure_data_files()
     return read_json(PROJECT_TODOS_FILE, {"next_project_todo_number": 1, "todos": []})
+
+
+def reading_progress_store():
+    ensure_data_files()
+    return read_json(READING_PROGRESS_FILE, {"completed": {}, "updated_at": ""})
 
 
 def next_id(store, counter_name, prefix):
@@ -239,6 +249,74 @@ def kjv_chapter_text(book, chapter):
     return "\n".join(lines)
 
 
+def bible_chapter_id(book, chapter):
+    return f"{safe_name(str(book).lower())}-{int(chapter)}"
+
+
+def bible_chapter_index():
+    books = []
+    if not KJV_FILE.exists():
+        return books
+    current_book = None
+    chapters = set()
+    with KJV_FILE.open("r", encoding="utf-8", errors="replace") as handle:
+        for raw_line in handle:
+            line = raw_line.strip()
+            if line.startswith("BOOK:"):
+                if current_book:
+                    books.append({
+                        "book": current_book,
+                        "chapters": [{"id": bible_chapter_id(current_book, chapter), "chapter": chapter, "label": f"{current_book} {chapter}"} for chapter in sorted(chapters)],
+                    })
+                current_book = line.split(":", 1)[1].strip()
+                chapters = set()
+                continue
+            match = re.match(r"^(\d+):", line)
+            if current_book and match:
+                chapters.add(int(match.group(1)))
+    if current_book:
+        books.append({
+            "book": current_book,
+            "chapters": [{"id": bible_chapter_id(current_book, chapter), "chapter": chapter, "label": f"{current_book} {chapter}"} for chapter in sorted(chapters)],
+        })
+    return books
+
+
+def mark_reading_complete(data):
+    store = reading_progress_store()
+    reading_id = str(data.get("id") or "").strip()
+    label = str(data.get("label") or reading_id).strip()
+    source = str(data.get("source") or "spiritual").strip()
+    if not reading_id:
+        raise ValueError("Reading id is required.")
+    completed = store.setdefault("completed", {})
+    completed[reading_id] = {
+        "id": reading_id,
+        "label": label,
+        "source": source,
+        "completed_at": now_stamp(),
+    }
+    store["updated_at"] = now_stamp()
+    write_json(READING_PROGRESS_FILE, store)
+    return completed[reading_id]
+
+
+def reading_progress_state():
+    store = reading_progress_store()
+    completed = store.get("completed", {})
+    bible_ids = {chapter["id"] for book in bible_chapter_index() for chapter in book.get("chapters", [])}
+    bible_completed = [reading_id for reading_id in completed if reading_id in bible_ids]
+    total = len(bible_ids)
+    percent = round((len(bible_completed) / total) * 100, 2) if total else 0
+    return {
+        "completed": completed,
+        "bible_completed": len(bible_completed),
+        "bible_total": total,
+        "bible_percent": percent,
+        "updated_at": store.get("updated_at", ""),
+    }
+
+
 def daily_reading_schedule(for_date=None):
     target_date = for_date or datetime.now().date()
     day = target_date.day
@@ -251,7 +329,7 @@ def daily_reading_schedule(for_date=None):
         label = f"{book} {chapter}"
         text = kjv_chapter_text(book, chapter)
         readings.append({
-            "id": f"{book.lower()}-{chapter}",
+            "id": bible_chapter_id(book, chapter),
             "label": label,
             "book": book,
             "chapter": chapter,
@@ -387,9 +465,15 @@ def create_project_todo(data):
         "category": normalize_project_category(data.get("category")),
         "title": data.get("title", "").strip(),
         "status": data.get("status", "open").strip() or "open",
+        "start_date": data.get("start_date", "").strip(),
+        "due_date": data.get("due_date", "").strip(),
         "offering_info": data.get("offering_info", "").strip(),
+        "expenses": data.get("expenses", "").strip(),
+        "tasks": data.get("tasks", "").strip(),
+        "work_log": data.get("work_log", "").strip(),
         "notes": data.get("notes", "").strip(),
         "next_step": data.get("next_step", "").strip(),
+        "assets": [],
         "created_at": now_stamp(),
         "updated_at": now_stamp(),
     }
@@ -404,7 +488,7 @@ def update_project_todo(todo_id, data):
     store = project_todo_store()
     for todo in store.get("todos", []):
         if todo.get("id", "").lower() == todo_id.lower():
-            for key in ("title", "status", "offering_info", "notes", "next_step"):
+            for key in ("title", "status", "start_date", "due_date", "offering_info", "expenses", "tasks", "work_log", "notes", "next_step"):
                 if key in data:
                     todo[key] = str(data[key]).strip()
             if "category" in data:
@@ -413,6 +497,93 @@ def update_project_todo(todo_id, data):
             write_json(PROJECT_TODOS_FILE, store)
             return todo
     raise ValueError(f"Project todo not found: {todo_id}")
+
+
+def project_todo_by_id(todo_id):
+    for todo in project_todo_store().get("todos", []):
+        if todo.get("id", "").lower() == todo_id.lower():
+            return todo
+    raise ValueError(f"Project todo not found: {todo_id}")
+
+
+def create_project_asset(form):
+    store = project_todo_store()
+    todo_id = field_value(form, "todo_id")
+    asset_type = field_value(form, "type") or "picture"
+    note = field_value(form, "note")
+    item = form["file"] if "file" in form else None
+    if not todo_id:
+        raise ValueError("Project asset upload requires a project todo.")
+    if item is None or not getattr(item, "filename", ""):
+        raise ValueError("Project asset upload requires a file.")
+
+    for todo in store.get("todos", []):
+        if todo.get("id", "").lower() == todo_id.lower():
+            safe_project = safe_name(todo_id)
+            original_name = safe_name(Path(item.filename).name)
+            target_dir = PROJECT_ASSET_DIR / safe_project
+            target_dir.mkdir(parents=True, exist_ok=True)
+            asset_id = f"AST-{len(todo.get('assets', [])) + 1:04d}"
+            target_path = target_dir / f"{asset_id}-{original_name}"
+            with target_path.open("wb") as out_file:
+                shutil.copyfileobj(item.file, out_file)
+            asset_path = target_path.relative_to(APP_DIR).as_posix()
+            asset = {
+                "id": asset_id,
+                "type": asset_type,
+                "note": note,
+                "filename": original_name,
+                "path": asset_path,
+                "uploaded_at": now_stamp(),
+            }
+            todo.setdefault("assets", []).append(asset)
+            todo["updated_at"] = now_stamp()
+            write_json(PROJECT_TODOS_FILE, store)
+            return asset
+    raise ValueError(f"Project todo not found: {todo_id}")
+
+
+def render_project_page(todo_id):
+    todo = project_todo_by_id(todo_id)
+    category = PROJECT_CATEGORIES.get(todo.get("category"), todo.get("category", ""))
+    assets = todo.get("assets", [])
+    asset_rows = "".join(
+        f"<li><a href='/{html_escape(asset.get('path', ''))}'>{html_escape(asset.get('type', 'asset'))}: {html_escape(asset.get('filename', ''))}</a> {html_escape(asset.get('note', ''))}</li>"
+        for asset in assets
+    ) or "<li>No receipts or pictures uploaded.</li>"
+    return f"""<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{html_escape(todo.get('title', 'Project'))}</title>
+  <style>
+    body {{ font-family: Segoe UI, system-ui, sans-serif; margin: 24px; background: #10151a; color: #edf2f7; }}
+    main {{ max-width: 920px; margin: 0 auto; }}
+    section {{ border: 1px solid #303842; border-radius: 8px; padding: 14px; margin: 12px 0; background: #181d22; }}
+    h1 {{ margin-top: 0; }}
+    pre {{ white-space: pre-wrap; font: inherit; color: #c7d0da; }}
+    a {{ color: #62d6b2; }}
+  </style>
+</head>
+<body>
+  <main>
+    <h1>{html_escape(todo.get('title', 'Project'))}</h1>
+    <p>{html_escape(category)} | {html_escape(todo.get('status', 'open'))}</p>
+    <section><h2>Dates</h2><p>Start: {html_escape(todo.get('start_date', ''))} | Due: {html_escape(todo.get('due_date', ''))}</p></section>
+    <section><h2>Offering Info</h2><pre>{html_escape(todo.get('offering_info', ''))}</pre></section>
+    <section><h2>Expenses</h2><pre>{html_escape(todo.get('expenses', ''))}</pre></section>
+    <section><h2>Tasks</h2><pre>{html_escape(todo.get('tasks', ''))}</pre></section>
+    <section><h2>Work Log</h2><pre>{html_escape(todo.get('work_log', ''))}</pre></section>
+    <section><h2>Receipts And Pictures</h2><ul>{asset_rows}</ul></section>
+    <section><h2>Notes</h2><pre>{html_escape(todo.get('notes', ''))}</pre><h2>Next Step</h2><pre>{html_escape(todo.get('next_step', ''))}</pre></section>
+  </main>
+</body>
+</html>"""
+
+
+def html_escape(value):
+    return str(value or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;").replace("'", "&#039;")
 
 
 def project_state():
@@ -919,6 +1090,8 @@ def app_state():
         "proof": proof_store().get("proof", []),
         "trackers": trackers,
         "reading_plans": reading_plans,
+        "reading_progress": reading_progress_state(),
+        "bible_books": bible_chapter_index(),
         "daily_reading_schedule": daily_schedule,
         "projects": project_state(),
     }
@@ -1164,13 +1337,13 @@ INDEX_HTML = r"""<!doctype html>
   <main>
     <nav>
       <button data-tab="dashboard" class="active">Dashboard</button>
-      <button data-tab="memory">Companion Memory</button>
-      <button data-tab="directives">Directive Ledger</button>
-      <button data-tab="proof">Proof Vault</button>
+      <button data-tab="memory">Companion</button>
+      <button data-tab="directives" style="display:none;">Directive Ledger</button>
+      <button data-tab="proof" style="display:none;">Proof Vault</button>
       <button data-tab="trackers">Daily Check-ins</button>
       <button data-tab="spiritual">Spiritual</button>
       <button data-tab="projects">Projects</button>
-      <button data-tab="council">Council Mode</button>
+      <button data-tab="council" style="display:none;">Council Mode</button>
     </nav>
     <section id="dashboard" class="active">
       <div class="dashboard-grid">
@@ -1206,6 +1379,15 @@ INDEX_HTML = r"""<!doctype html>
     </section>
     <section id="memory">
       <div class="grid">
+        <div class="panel full">
+          <h2>Companion</h2>
+          <div class="tab-row">
+            <button class="active" onclick="document.querySelector('button[data-tab=memory]').click()">Memory</button>
+            <button onclick="document.querySelector('button[data-tab=directives]').click()">Directives</button>
+            <button onclick="document.querySelector('button[data-tab=proof]').click()">Proof</button>
+            <button onclick="document.querySelector('button[data-tab=council]').click()">Council</button>
+          </div>
+        </div>
         <div class="panel">
           <h2>Packet Handoff</h2>
           <label>Companion</label>
@@ -1260,6 +1442,15 @@ INDEX_HTML = r"""<!doctype html>
     </section>
     <section id="directives">
       <div class="grid">
+        <div class="panel full">
+          <h2>Companion</h2>
+          <div class="tab-row">
+            <button onclick="document.querySelector('button[data-tab=memory]').click()">Memory</button>
+            <button class="active" onclick="document.querySelector('button[data-tab=directives]').click()">Directives</button>
+            <button onclick="document.querySelector('button[data-tab=proof]').click()">Proof</button>
+            <button onclick="document.querySelector('button[data-tab=council]').click()">Council</button>
+          </div>
+        </div>
         <div class="panel">
           <h2>Parse Directive</h2>
           <label>Directive text</label>
@@ -1301,6 +1492,15 @@ INDEX_HTML = r"""<!doctype html>
     </section>
     <section id="proof">
       <div class="grid">
+        <div class="panel full">
+          <h2>Companion</h2>
+          <div class="tab-row">
+            <button onclick="document.querySelector('button[data-tab=memory]').click()">Memory</button>
+            <button onclick="document.querySelector('button[data-tab=directives]').click()">Directives</button>
+            <button class="active" onclick="document.querySelector('button[data-tab=proof]').click()">Proof</button>
+            <button onclick="document.querySelector('button[data-tab=council]').click()">Council</button>
+          </div>
+        </div>
         <div class="panel">
           <h2>Submit Proof</h2>
           <form id="proofForm">
@@ -1384,27 +1584,6 @@ INDEX_HTML = r"""<!doctype html>
                 <input id="checkinWorkMinutes" type="number" min="0" value="0">
               </div>
               <div>
-                <label>Reading plan</label>
-                <select id="checkinReadingPlan"></select>
-              </div>
-              <div>
-                <label>Current reading</label>
-                <select id="checkinReadingSection"></select>
-              </div>
-              <div>
-                <label>Reading status</label>
-                <select id="checkinReadingStatus">
-                  <option value=""></option>
-                  <option>read fully</option>
-                  <option>skimmed</option>
-                  <option>missed</option>
-                </select>
-              </div>
-              <div>
-                <label>Reading minutes</label>
-                <input id="checkinReadingMinutes" type="number" min="0" value="0">
-              </div>
-              <div>
                 <label>Difficulty</label>
                 <input id="checkinWorkDifficulty">
               </div>
@@ -1413,38 +1592,17 @@ INDEX_HTML = r"""<!doctype html>
                 <input id="checkinMoneySpent" type="number" min="0" step="0.01" value="0">
               </div>
             </div>
-            <label>Completed readings</label>
-            <div id="readingChecklist" class="reading-checklist"></div>
-            <div id="readingProgress" class="muted"></div>
             <div class="row">
               <label><input id="checkinFood" type="checkbox" style="width:auto;"> Food on plan</label>
-              <label><input id="checkinPrayer" type="checkbox" style="width:auto;"> Prayer</label>
-              <label><input id="checkinScripture" type="checkbox" style="width:auto;"> Scripture</label>
-              <label><input id="checkinReadingCompleted" type="checkbox" style="width:auto;"> Reading done</label>
+              <label><input id="checkinReadingCompleted" type="checkbox" style="width:auto;"> Daily reading complete</label>
               <label><input id="checkinWorkRecurring" type="checkbox" style="width:auto;"> Recurring</label>
             </div>
-            <label>Assigned reading</label>
-            <input id="checkinAssignedReading">
             <label>Work task</label>
             <input id="checkinWorkTask">
             <label>Result</label>
             <input id="checkinWorkResult">
             <label>Next step</label>
             <input id="checkinNextStep">
-            <label>Favorite verse</label>
-            <input id="checkinFavoriteVerse">
-            <label>Application</label>
-            <input id="checkinApplication">
-            <label>Prayer response</label>
-            <input id="checkinPrayerResponse">
-            <label>Gratitude</label>
-            <input id="checkinGratitude">
-            <label>Repentance / forgiveness</label>
-            <input id="checkinRepentance">
-            <label>Service</label>
-            <input id="checkinService">
-            <label>Felt close / far from God</label>
-            <input id="checkinFeltClose">
             <label>Note</label>
             <textarea id="checkinNote"></textarea>
             <button class="inline primary" onclick="saveCheckin()">Save Check-In</button>
@@ -1467,14 +1625,31 @@ INDEX_HTML = r"""<!doctype html>
         <div class="panel full">
           <h2>Spiritual</h2>
           <div class="tab-row" id="spiritualTabs">
-            <button class="active" data-spiritual="daily">Daily Reading</button>
+            <button class="active" data-spiritual="summary">Summary</button>
+            <button data-spiritual="daily">Daily Reading</button>
             <button data-spiritual="extra">Extra Reading</button>
             <button data-spiritual="prayer">Prayer</button>
           </div>
-          <div class="tab-view active" data-spiritual-view="daily">
+          <div class="tab-view active" data-spiritual-view="summary">
+            <div id="spiritualSummary"></div>
+          </div>
+          <div class="tab-view" data-spiritual-view="daily">
             <div id="dailyReadingSchedule"></div>
           </div>
           <div class="tab-view" data-spiritual-view="extra">
+            <div class="row">
+              <div>
+                <label>Book</label>
+                <select id="extraBookSelect"></select>
+              </div>
+              <div>
+                <label>Chapter</label>
+                <select id="extraChapterSelect"></select>
+              </div>
+            </div>
+            <button class="inline primary" onclick="loadExtraReadingChapter()">Open Chapter</button>
+            <button class="inline" onclick="markExtraReadingRead()">Read</button>
+            <div id="extraChapterPane" class="schedule-reading"></div>
             <div id="extraReadingPlans"></div>
           </div>
           <div class="tab-view" data-spiritual-view="prayer">
@@ -1506,8 +1681,24 @@ INDEX_HTML = r"""<!doctype html>
           <input type="hidden" id="projectTodoCategory" value="home">
           <label>Title</label>
           <input id="projectTodoTitle">
+          <div class="row">
+            <div>
+              <label>Start date</label>
+              <input id="projectTodoStartDate" type="date">
+            </div>
+            <div>
+              <label>Due date</label>
+              <input id="projectTodoDueDate" type="date">
+            </div>
+          </div>
           <label>Offering info</label>
           <textarea id="projectTodoOffering"></textarea>
+          <label>Expenses</label>
+          <textarea id="projectTodoExpenses"></textarea>
+          <label>Tasks</label>
+          <textarea id="projectTodoTasks"></textarea>
+          <label>Work log</label>
+          <textarea id="projectTodoWorkLog"></textarea>
           <label>Notes</label>
           <textarea id="projectTodoNotes"></textarea>
           <label>Next step</label>
@@ -1517,6 +1708,19 @@ INDEX_HTML = r"""<!doctype html>
         <div class="panel">
           <h2>Project Page</h2>
           <div id="projectTodoDetail" class="detail-box"></div>
+          <form id="projectAssetForm" style="margin-top:10px;">
+            <input type="hidden" name="todo_id" id="projectAssetTodoId">
+            <label>Asset type</label>
+            <select name="type">
+              <option value="receipt">Scanned receipt</option>
+              <option value="picture">Picture</option>
+            </select>
+            <label>Note</label>
+            <input name="note">
+            <label>File</label>
+            <input type="file" name="file">
+            <button class="inline primary" type="submit">Upload Asset</button>
+          </form>
         </div>
         <div class="panel full">
           <div id="projectTodoList"></div>
@@ -1525,6 +1729,13 @@ INDEX_HTML = r"""<!doctype html>
     </section>
     <section id="council">
       <div class="panel">
+        <h2>Companion</h2>
+        <div class="tab-row">
+          <button onclick="document.querySelector('button[data-tab=memory]').click()">Memory</button>
+          <button onclick="document.querySelector('button[data-tab=directives]').click()">Directives</button>
+          <button onclick="document.querySelector('button[data-tab=proof]').click()">Proof</button>
+          <button class="active" onclick="document.querySelector('button[data-tab=council]').click()">Council</button>
+        </div>
         <h2>Council Mode</h2>
         <p class="muted">Use this as the collection point: copy handoffs for each companion, ask the same question, then paste each companion's command batch back into the Memory tab for that companion. This preserves separate private stances.</p>
         <div id="councilCompanions"></div>
@@ -1536,7 +1747,7 @@ INDEX_HTML = r"""<!doctype html>
     let selectedCompanion = null;
     let selectedDirectiveStatus = 'issued';
     let selectedTrackerTab = 'summary';
-    let selectedSpiritualTab = 'daily';
+    let selectedSpiritualTab = 'summary';
     let selectedPrayerCategory = 'gratitude';
     let selectedProjectCategory = 'home';
     let selectedProjectTodoId = null;
@@ -1595,17 +1806,7 @@ INDEX_HTML = r"""<!doctype html>
       renderMemoryIndex();
     });
 
-    document.getElementById('checkinReadingPlan').addEventListener('change', () => {
-      renderReadingSections();
-      renderReadingChecklist();
-    });
-
-    document.getElementById('checkinReadingSection').addEventListener('change', event => {
-      const selected = event.target.options[event.target.selectedIndex];
-      if (selected && !document.getElementById('checkinAssignedReading').value.trim()) {
-        document.getElementById('checkinAssignedReading').value = selected.textContent;
-      }
-    });
+    document.getElementById('extraBookSelect').addEventListener('change', renderExtraChapterSelect);
 
     document.getElementById('checkinDate').value = new Date().toISOString().slice(0, 10);
 
@@ -1615,6 +1816,22 @@ INDEX_HTML = r"""<!doctype html>
       const res = await fetch('/api/proof/upload', { method: 'POST', body: form });
       await handleResponse(res);
       event.target.reset();
+      await loadState();
+    });
+
+    document.getElementById('projectAssetForm').addEventListener('submit', async event => {
+      event.preventDefault();
+      const todo = currentProjectTodo();
+      if (!todo) {
+        setStatus('Select a project todo first.');
+        return;
+      }
+      document.getElementById('projectAssetTodoId').value = todo.id;
+      const form = new FormData(event.target);
+      const res = await fetch('/api/project-assets/upload', { method: 'POST', body: form });
+      await handleResponse(res);
+      event.target.reset();
+      selectedProjectTodoId = todo.id;
       await loadState();
     });
 
@@ -1826,7 +2043,6 @@ INDEX_HTML = r"""<!doctype html>
       const summary = state.trackers.summary;
       document.getElementById('trackerSummary').innerHTML = `<span class="pill">${summary.checkin_entries} check-ins</span> <span class="pill">${summary.journal_entries} journal</span> <span class="pill">${summary.task_entries} task logs</span> <span class="pill">${summary.physical_entries} physical logs</span> ${renderTagCloud(state.trackers.work_categories, state.trackers.task_categories)}`;
       document.getElementById('dailySummary').innerHTML = renderDailySummary();
-      renderReadingPlanControls();
       renderTrackerTabs();
       document.getElementById('checkinList').innerHTML = renderCheckins(state.trackers.checkins);
       document.getElementById('journalList').innerHTML = renderSimpleList(state.trackers.journal, item => `${item.timestamp || ''} | mood ${item.mood || ''} | ${item.prompt || ''}`);
@@ -1840,9 +2056,10 @@ INDEX_HTML = r"""<!doctype html>
       const spiritual = latest ? latest.spirit || {} : {};
       const body = latest ? latest.body || {} : {};
       const work = latest ? latest.work || {} : {};
+      const readingProgress = state.reading_progress || {};
       return `<div class="grid" style="margin-top:12px;">
         <div class="panel"><h3>Latest Check-In</h3>${latest ? renderCheckinCard(latest) : '<p class="muted">No entries.</p>'}</div>
-        <div class="panel"><h3>Spiritual</h3><span class="pill">${spiritual.prayer ? 'prayer logged' : 'prayer open'}</span><span class="pill">${spiritual.scripture ? 'scripture logged' : 'scripture open'}</span><p class="muted">${escapeHtml(spiritual.reading_status || 'No reading status.')}</p></div>
+        <div class="panel"><h3>Spiritual</h3><span class="pill">${escapeHtml(readingProgress.bible_percent || 0)}% Bible read</span><span class="pill">${escapeHtml(readingProgress.bible_completed || 0)} / ${escapeHtml(readingProgress.bible_total || 0)} chapters</span><p class="muted">${escapeHtml(spiritual.reading_status || 'No reading status.')}</p></div>
         <div class="panel"><h3>Physical</h3><p class="muted">${escapeHtml(body.exercise_minutes || 0)} exercise minutes, ${escapeHtml(body.sleep_hours || 0)}h sleep latest.</p></div>
         <div class="panel"><h3>Projects</h3><p class="muted">${escapeHtml(openProjects)} open project todo(s).</p><p class="muted">${escapeHtml(work.category || '')} ${escapeHtml(work.task_name || '')}</p></div>
       </div>`;
@@ -1857,41 +2074,6 @@ INDEX_HTML = r"""<!doctype html>
       });
     }
 
-    function renderReadingPlanControls() {
-      const planSelect = document.getElementById('checkinReadingPlan');
-      const plans = Object.keys(state.reading_plans || {});
-      const currentPlan = planSelect.value || plans[0] || '';
-      planSelect.innerHTML = plans.map(plan => `<option value="${escapeHtml(plan)}">${escapeHtml(plan)}</option>`).join('');
-      if (currentPlan && plans.includes(currentPlan)) {
-        planSelect.value = currentPlan;
-      }
-      renderReadingSections();
-      renderReadingChecklist();
-    }
-
-    function renderReadingSections() {
-      const planName = document.getElementById('checkinReadingPlan').value;
-      const sectionSelect = document.getElementById('checkinReadingSection');
-      const sections = (state.reading_plans || {})[planName] || [];
-      const currentSection = sectionSelect.value || (sections[0] ? sections[0].id : '');
-      sectionSelect.innerHTML = sections.map(section => `<option value="${escapeHtml(section.id)}">${escapeHtml(section.label)}</option>`).join('');
-      if (currentSection && sections.some(section => section.id === currentSection)) {
-        sectionSelect.value = currentSection;
-      }
-    }
-
-    function renderReadingChecklist() {
-      const planName = document.getElementById('checkinReadingPlan').value;
-      const sections = (state.reading_plans || {})[planName] || [];
-      const progress = (state.trackers.reading_progress || {})[planName] || {};
-      const completed = new Set(progress.completed_ids || []);
-      document.getElementById('readingChecklist').innerHTML = sections.map(section => {
-        const checked = completed.has(section.id) ? 'checked' : '';
-        return `<label><input type="checkbox" class="reading-check" value="${escapeHtml(section.id)}" ${checked} style="width:auto;"> ${escapeHtml(section.label)}</label>`;
-      }).join('');
-      document.getElementById('readingProgress').textContent = sections.length ? `${progress.completed || 0}/${sections.length} completed for ${planName}` : 'No reading plan selected.';
-    }
-
     function renderDailyReadingSchedule() {
       const schedule = state.daily_reading_schedule || {};
       const readings = schedule.readings || [];
@@ -1901,27 +2083,29 @@ INDEX_HTML = r"""<!doctype html>
       }
       document.getElementById('dailyReadingSchedule').innerHTML = readings.map(reading => {
         const text = reading.available ? escapeHtml(reading.text || '') : 'No text found for this chapter.';
-        return `<div class="schedule-reading"><div class="row"><strong>${escapeHtml(reading.label)}</strong><button class="inline" onclick="useScheduledReading('${escapeJs(reading.id)}')">Use</button></div><div class="scripture-text">${text}</div></div>`;
+        const done = isReadingComplete(reading.id) ? '<span class="pill">read</span>' : '';
+        return `<div class="schedule-reading"><div class="row"><strong>${escapeHtml(reading.label)} ${done}</strong><button class="inline" onclick="markReadingRead('${escapeJs(reading.id)}','${escapeJs(reading.label)}','daily')">Read</button></div><div class="scripture-text">${text}</div></div>`;
       }).join('');
     }
 
-    function useScheduledReading(readingId) {
-      const schedule = state.daily_reading_schedule || {};
-      const reading = (schedule.readings || []).find(item => item.id === readingId);
-      if (!reading) return;
-      document.getElementById('checkinReadingPlan').value = 'KJV Daily Schedule';
-      renderReadingSections();
-      document.getElementById('checkinReadingSection').value = reading.id;
-      renderReadingChecklist();
-      document.getElementById('checkinAssignedReading').value = reading.label;
-      const checkbox = Array.from(document.querySelectorAll('.reading-check')).find(input => input.value === reading.id);
-      if (checkbox) checkbox.checked = true;
-      document.getElementById('checkinScripture').checked = true;
-      setStatus(`Selected ${reading.label}.`);
+    function isReadingComplete(readingId) {
+      return Boolean(((state.reading_progress || {}).completed || {})[readingId]);
+    }
+
+    async function markReadingRead(readingId, label, source) {
+      const res = await fetch('/api/reading-progress', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: readingId, label, source })
+      });
+      await handleResponse(res);
+      await loadState();
     }
 
     function renderSpiritual() {
       renderSpiritualTabs();
+      renderSpiritualSummary();
+      renderExtraBookSelect();
       renderDailyReadingSchedule();
       renderExtraReadingPlans();
       renderPrayerCategory();
@@ -1936,28 +2120,60 @@ INDEX_HTML = r"""<!doctype html>
       });
     }
 
+    function renderSpiritualSummary() {
+      const progress = state.reading_progress || {};
+      const readings = ((state.daily_reading_schedule || {}).readings || []);
+      const dailyRead = readings.filter(reading => isReadingComplete(reading.id)).length;
+      document.getElementById('spiritualSummary').innerHTML = `<div class="grid">
+        <div><h3>Bible Progress</h3><span class="pill">${escapeHtml(progress.bible_percent || 0)}% read</span><span class="pill">${escapeHtml(progress.bible_completed || 0)} / ${escapeHtml(progress.bible_total || 0)} chapters</span></div>
+        <div><h3>Daily Reading</h3><span class="pill">${escapeHtml(dailyRead)} / ${escapeHtml(readings.length)} read today</span><p class="muted">${escapeHtml((state.daily_reading_schedule || {}).date || '')}</p></div>
+      </div>`;
+    }
+
+    function renderExtraBookSelect() {
+      const select = document.getElementById('extraBookSelect');
+      const current = select.value || 'Genesis';
+      const books = state.bible_books || [];
+      select.innerHTML = books.map(book => `<option value="${escapeHtml(book.book)}">${escapeHtml(book.book)}</option>`).join('');
+      if (books.some(book => book.book === current)) select.value = current;
+      renderExtraChapterSelect();
+    }
+
+    function renderExtraChapterSelect() {
+      const bookName = document.getElementById('extraBookSelect').value;
+      const chapterSelect = document.getElementById('extraChapterSelect');
+      const book = (state.bible_books || []).find(item => item.book === bookName);
+      const current = chapterSelect.value;
+      const chapters = book ? book.chapters : [];
+      chapterSelect.innerHTML = chapters.map(chapter => `<option value="${escapeHtml(chapter.chapter)}">${escapeHtml(chapter.chapter)}</option>`).join('');
+      if (current && chapters.some(chapter => String(chapter.chapter) === String(current))) chapterSelect.value = current;
+    }
+
+    async function loadExtraReadingChapter() {
+      const book = document.getElementById('extraBookSelect').value;
+      const chapter = document.getElementById('extraChapterSelect').value;
+      const res = await fetch(`/api/bible/chapter?book=${encodeURIComponent(book)}&chapter=${encodeURIComponent(chapter)}`);
+      const data = await handleResponse(res, false);
+      const done = isReadingComplete(data.id) ? '<span class="pill">read</span>' : '';
+      document.getElementById('extraChapterPane').innerHTML = `<h3>${escapeHtml(data.label)} ${done}</h3><div class="scripture-text">${escapeHtml(data.text || 'No text found.')}</div>`;
+    }
+
+    async function markExtraReadingRead() {
+      const book = document.getElementById('extraBookSelect').value;
+      const chapter = document.getElementById('extraChapterSelect').value;
+      const id = `${book.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '')}-${chapter}`;
+      await markReadingRead(id, `${book} ${chapter}`, 'extra');
+      await loadExtraReadingChapter();
+    }
+
     function renderExtraReadingPlans() {
       const blocks = Object.entries(state.reading_plans || {})
         .filter(([plan]) => plan !== 'KJV Daily Schedule')
         .map(([plan, sections]) => {
-          const items = sections.map(section => `<button class="todo-row" onclick="useExtraReading('${escapeJs(plan)}','${escapeJs(section.id)}')"><strong>${escapeHtml(section.label)}</strong><br><span class="muted">${escapeHtml(plan)}</span></button>`).join('');
+          const items = sections.map(section => `<button class="todo-row" onclick="markReadingRead('${escapeJs(section.id)}','${escapeJs(section.label)}','${escapeJs(plan)}')"><strong>${escapeHtml(section.label)} ${isReadingComplete(section.id) ? '<span class="pill">read</span>' : ''}</strong><br><span class="muted">${escapeHtml(plan)}</span></button>`).join('');
           return `<div class="panel" style="margin-bottom:10px;"><h3>${escapeHtml(plan)}</h3>${items}</div>`;
         }).join('');
       document.getElementById('extraReadingPlans').innerHTML = blocks || '<p class="muted">No extra reading plans.</p>';
-    }
-
-    function useExtraReading(planName, sectionId) {
-      const section = ((state.reading_plans || {})[planName] || []).find(item => item.id === sectionId);
-      if (!section) return;
-      document.getElementById('checkinReadingPlan').value = planName;
-      renderReadingSections();
-      document.getElementById('checkinReadingSection').value = section.id;
-      renderReadingChecklist();
-      document.getElementById('checkinAssignedReading').value = section.label;
-      const checkbox = Array.from(document.querySelectorAll('.reading-check')).find(input => input.value === section.id);
-      if (checkbox) checkbox.checked = true;
-      document.getElementById('checkinScripture').checked = true;
-      setStatus(`Selected ${section.label}.`);
     }
 
     function renderPrayerCategory() {
@@ -1985,7 +2201,7 @@ INDEX_HTML = r"""<!doctype html>
       const todos = (projects.todos || []).filter(todo => todo.category === selectedProjectCategory);
       if (!selectedProjectTodoId && todos.length) selectedProjectTodoId = todos[0].id;
       document.getElementById('projectTodoList').innerHTML = todos.length
-        ? todos.map(todo => `<button class="todo-row" onclick="selectProjectTodo('${escapeJs(todo.id)}')"><strong>${escapeHtml(todo.title)}</strong><br><span class="muted">${escapeHtml(todo.status || 'open')} | next ${escapeHtml(todo.next_step || '')}</span></button>`).join('')
+        ? todos.map(todo => `<div class="todo-row"><button class="inline" onclick="selectProjectTodo('${escapeJs(todo.id)}')">Select</button> <a class="inline primary" href="/projects/${encodeURIComponent(todo.id)}" target="_blank">Open page</a><br><strong>${escapeHtml(todo.title)}</strong><br><span class="muted">${escapeHtml(todo.status || 'open')} | next ${escapeHtml(todo.next_step || '')}</span></div>`).join('')
         : '<p class="muted">No project todos in this category.</p>';
       renderProjectTodoDetail();
     }
@@ -2006,14 +2222,21 @@ INDEX_HTML = r"""<!doctype html>
         return;
       }
       const category = ((state.projects || {}).categories || {})[todo.category] || todo.category;
-      document.getElementById('projectTodoDetail').innerHTML = `<h3>${escapeHtml(todo.title)}</h3><span class="pill">${escapeHtml(category)}</span><span class="pill">${escapeHtml(todo.status || 'open')}</span><h3>Offering Info</h3><p>${escapeHtml(todo.offering_info || 'No offering info yet.')}</p><h3>Notes</h3><p class="muted">${escapeHtml(todo.notes || '')}</p><h3>Next Step</h3><p class="muted">${escapeHtml(todo.next_step || '')}</p><button class="inline primary" onclick="setProjectTodoStatus('${escapeJs(todo.id)}','done')">Mark Done</button> <button class="inline" onclick="setProjectTodoStatus('${escapeJs(todo.id)}','open')">Reopen</button>`;
+      const assets = (todo.assets || []).map(asset => `<li><a href="/${escapeHtml(asset.path)}" target="_blank">${escapeHtml(asset.type)}: ${escapeHtml(asset.filename)}</a> <span class="muted">${escapeHtml(asset.note || '')}</span></li>`).join('') || '<li class="muted">No receipts or pictures uploaded.</li>';
+      document.getElementById('projectAssetTodoId').value = todo.id;
+      document.getElementById('projectTodoDetail').innerHTML = `<h3>${escapeHtml(todo.title)}</h3><span class="pill">${escapeHtml(category)}</span><span class="pill">${escapeHtml(todo.status || 'open')}</span><a class="inline primary" href="/projects/${encodeURIComponent(todo.id)}" target="_blank">Open page</a><h3>Dates</h3><p class="muted">Start ${escapeHtml(todo.start_date || '')} | Due ${escapeHtml(todo.due_date || '')}</p><h3>Offering Info</h3><p>${escapeHtml(todo.offering_info || 'No offering info yet.')}</p><h3>Expenses</h3><p class="muted">${escapeHtml(todo.expenses || '')}</p><h3>Tasks</h3><p class="muted">${escapeHtml(todo.tasks || '')}</p><h3>Work Log</h3><p class="muted">${escapeHtml(todo.work_log || '')}</p><h3>Receipts And Pictures</h3><ul>${assets}</ul><h3>Notes</h3><p class="muted">${escapeHtml(todo.notes || '')}</p><h3>Next Step</h3><p class="muted">${escapeHtml(todo.next_step || '')}</p><button class="inline primary" onclick="setProjectTodoStatus('${escapeJs(todo.id)}','done')">Mark Done</button> <button class="inline" onclick="setProjectTodoStatus('${escapeJs(todo.id)}','open')">Reopen</button>`;
     }
 
     async function createProjectTodo() {
       const body = {
         category: document.getElementById('projectTodoCategory').value,
         title: document.getElementById('projectTodoTitle').value,
+        start_date: document.getElementById('projectTodoStartDate').value,
+        due_date: document.getElementById('projectTodoDueDate').value,
         offering_info: document.getElementById('projectTodoOffering').value,
+        expenses: document.getElementById('projectTodoExpenses').value,
+        tasks: document.getElementById('projectTodoTasks').value,
+        work_log: document.getElementById('projectTodoWorkLog').value,
         notes: document.getElementById('projectTodoNotes').value,
         next_step: document.getElementById('projectTodoNextStep').value,
       };
@@ -2024,7 +2247,7 @@ INDEX_HTML = r"""<!doctype html>
       });
       const data = await handleResponse(res);
       selectedProjectTodoId = data.todo.id;
-      for (const id of ['projectTodoTitle', 'projectTodoOffering', 'projectTodoNotes', 'projectTodoNextStep']) {
+      for (const id of ['projectTodoTitle', 'projectTodoStartDate', 'projectTodoDueDate', 'projectTodoOffering', 'projectTodoExpenses', 'projectTodoTasks', 'projectTodoWorkLog', 'projectTodoNotes', 'projectTodoNextStep']) {
         document.getElementById(id).value = '';
       }
       await loadState();
@@ -2050,22 +2273,22 @@ INDEX_HTML = r"""<!doctype html>
         exercise_minutes: document.getElementById('checkinExerciseMinutes').value,
         exercise_type: document.getElementById('checkinExerciseType').value,
         weight: document.getElementById('checkinWeight').value,
-        prayer: document.getElementById('checkinPrayer').checked,
-        scripture: document.getElementById('checkinScripture').checked,
-        reading_plan: document.getElementById('checkinReadingPlan').value,
-        reading_section: document.getElementById('checkinReadingSection').value,
-        reading_checklist: Array.from(document.querySelectorAll('.reading-check:checked')).map(input => input.value),
-        assigned_reading: document.getElementById('checkinAssignedReading').value,
+        prayer: false,
+        scripture: document.getElementById('checkinReadingCompleted').checked,
+        reading_plan: '',
+        reading_section: '',
+        reading_checklist: [],
+        assigned_reading: '',
         reading_completed: document.getElementById('checkinReadingCompleted').checked,
-        reading_minutes: document.getElementById('checkinReadingMinutes').value,
-        reading_status: document.getElementById('checkinReadingStatus').value,
-        favorite_verse: document.getElementById('checkinFavoriteVerse').value,
-        application: document.getElementById('checkinApplication').value,
-        prayer_response: document.getElementById('checkinPrayerResponse').value,
-        gratitude: document.getElementById('checkinGratitude').value,
-        repentance: document.getElementById('checkinRepentance').value,
-        service: document.getElementById('checkinService').value,
-        felt_close: document.getElementById('checkinFeltClose').value,
+        reading_minutes: 0,
+        reading_status: document.getElementById('checkinReadingCompleted').checked ? 'daily reading complete' : '',
+        favorite_verse: '',
+        application: '',
+        prayer_response: '',
+        gratitude: '',
+        repentance: '',
+        service: '',
+        felt_close: '',
         work_category: document.getElementById('checkinWorkCategory').value,
         work_task: document.getElementById('checkinWorkTask').value,
         work_minutes: document.getElementById('checkinWorkMinutes').value,
@@ -2082,7 +2305,7 @@ INDEX_HTML = r"""<!doctype html>
         body: JSON.stringify(body)
       });
       await handleResponse(res);
-      for (const id of ['checkinExerciseType', 'checkinWeight', 'checkinAssignedReading', 'checkinWorkTask', 'checkinWorkDifficulty', 'checkinWorkResult', 'checkinNextStep', 'checkinFavoriteVerse', 'checkinApplication', 'checkinPrayerResponse', 'checkinGratitude', 'checkinRepentance', 'checkinService', 'checkinFeltClose', 'checkinNote']) {
+      for (const id of ['checkinExerciseType', 'checkinWeight', 'checkinWorkTask', 'checkinWorkDifficulty', 'checkinWorkResult', 'checkinNextStep', 'checkinNote']) {
         document.getElementById(id).value = '';
       }
       await loadState();
@@ -2107,22 +2330,8 @@ INDEX_HTML = r"""<!doctype html>
       const body = item.body || {};
       const mind = item.mind || {};
       const spirit = item.spirit || {};
-      const plan = spirit.reading_plan || '';
-      const section = readingSectionLabel(plan, spirit.reading_section);
-      const completed = readingChecklistLabels(plan, spirit.reading_checklist || []);
-      const readingLine = plan
-        ? `${plan} | ${section || spirit.assigned_reading || ''} | checked: ${completed || 'none'}`
-        : `${spirit.assigned_reading || ''}`;
-      return `<strong>${escapeHtml(item.date || item.id)}</strong><br><span class="muted">mood ${escapeHtml(mind.mood || '')}, energy ${escapeHtml(body.energy || '')}, sleep ${escapeHtml(body.sleep_hours || 0)}h, exercise ${escapeHtml(body.exercise_minutes || 0)}m</span><br><span class="muted">${escapeHtml(work.category || '')} ${escapeHtml(work.minutes || 0)}m | ${escapeHtml(work.task_name || '')} | next ${escapeHtml(work.next_step || '')}</span><br><span class="muted">prayer ${spirit.prayer ? 'yes' : 'no'} / scripture ${spirit.scripture ? 'yes' : 'no'} / reading ${spirit.reading_completed ? 'done' : 'open'} ${escapeHtml(spirit.reading_minutes || 0)}m / ${escapeHtml(spirit.reading_status || '')}</span><br><span class="muted">${escapeHtml(readingLine)}</span><br><span>${escapeHtml(mind.note || spirit.application || work.result || '')}</span>`;
-    }
-
-    function readingSectionLabel(planName, sectionId) {
-      const section = ((state && state.reading_plans && state.reading_plans[planName]) || []).find(item => item.id === sectionId);
-      return section ? section.label : (sectionId || '');
-    }
-
-    function readingChecklistLabels(planName, sectionIds) {
-      return sectionIds.map(sectionId => readingSectionLabel(planName, sectionId)).filter(Boolean).join(', ');
+      const readingStatus = spirit.reading_completed ? 'daily reading complete' : 'daily reading open';
+      return `<strong>${escapeHtml(item.date || item.id)}</strong><br><span class="muted">mood ${escapeHtml(mind.mood || '')}, energy ${escapeHtml(body.energy || '')}, sleep ${escapeHtml(body.sleep_hours || 0)}h, exercise ${escapeHtml(body.exercise_minutes || 0)}m</span><br><span class="muted">${escapeHtml(work.category || '')} ${escapeHtml(work.minutes || 0)}m | ${escapeHtml(work.task_name || '')} | next ${escapeHtml(work.next_step || '')}</span><br><span class="muted">${escapeHtml(readingStatus)}</span><br><span>${escapeHtml(mind.note || work.result || '')}</span>`;
     }
 
     function renderTagCloud(primary, secondary) {
@@ -2177,6 +2386,20 @@ class CompanionWebHandler(BaseHTTPRequestHandler):
                 self.send_html(INDEX_HTML)
             elif path == "/api/state":
                 self.send_json(app_state())
+            elif path == "/api/bible/chapter":
+                params = parse_qs(parsed.query)
+                book = params.get("book", [""])[0]
+                chapter = clean_int(params.get("chapter", ["0"])[0], default=0, minimum=1)
+                self.send_json({
+                    "id": bible_chapter_id(book, chapter),
+                    "label": f"{book} {chapter}",
+                    "book": book,
+                    "chapter": chapter,
+                    "text": kjv_chapter_text(book, chapter),
+                })
+            elif path.startswith("/projects/"):
+                todo_id = unquote(path.rsplit("/", 1)[1])
+                self.send_html(render_project_page(todo_id))
             elif path.startswith("/api/companion/"):
                 self.handle_companion_get(path)
             elif path.startswith("/api/proof/") and path.endswith("/download"):
@@ -2187,6 +2410,8 @@ class CompanionWebHandler(BaseHTTPRequestHandler):
                     return
                 self.send_file(APP_DIR / proof["path"], as_attachment=True)
             elif path.startswith("/proof_vault/"):
+                self.send_file(APP_DIR / unquote(path.lstrip("/")))
+            elif path.startswith("/project_assets/"):
                 self.send_file(APP_DIR / unquote(path.lstrip("/")))
             else:
                 self.send_error_json(404, "Not found.")
@@ -2215,6 +2440,20 @@ class CompanionWebHandler(BaseHTTPRequestHandler):
             elif path == "/api/project-todos":
                 todo = create_project_todo(self.read_json_body())
                 self.send_json({"message": f"Created {todo['id']}.", "todo": todo})
+            elif path == "/api/reading-progress":
+                reading = mark_reading_complete(self.read_json_body())
+                self.send_json({"message": f"Marked {reading['label']} read.", "reading": reading})
+            elif path == "/api/project-assets/upload":
+                form = cgi.FieldStorage(
+                    fp=self.rfile,
+                    headers=self.headers,
+                    environ={
+                        "REQUEST_METHOD": "POST",
+                        "CONTENT_TYPE": self.headers.get("Content-Type", ""),
+                    },
+                )
+                asset = create_project_asset(form)
+                self.send_json({"message": f"Uploaded {asset['id']}.", "asset": asset})
             elif path == "/api/proof/upload":
                 form = cgi.FieldStorage(
                     fp=self.rfile,

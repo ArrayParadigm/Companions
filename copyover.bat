@@ -102,7 +102,7 @@ if exist "%ziptemp%" del /Q "%ziptemp%"
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "$src = '%src%';" ^
   "$zip = '%ziptemp%';" ^
-  "$excludeDirs = @('\.git\','\bkup\','\deploy_package\','\__pycache__\','\.pytest_cache\','\.mypy_cache\','\.ruff_cache\','\.venv\','\venv\','\env\','\htmlcov\','\build\','\dist\','\proof_vault\');" ^
+  "$excludeDirs = @('\.git\','\bkup\','\deploy_package\','\__pycache__\','\.pytest_cache\','\.mypy_cache\','\.ruff_cache\','\.venv\','\venv\','\env\','\htmlcov\','\build\','\dist\','\proof_vault\','\project_assets\');" ^
   "$excludeExt = @('.pyc','.pyo','.log','.zip','.7z','.tar','.gz','.tmp','.bak','.swp','.swo');" ^
   "$excludeNames = @('Thumbs.db','Desktop.ini','.coverage');" ^
   "$files = Get-ChildItem -LiteralPath $src -Recurse -File -Force | Where-Object { $p = $_.FullName.Substring($src.Length); $ext = $_.Extension.ToLowerInvariant(); -not ($excludeDirs | Where-Object { $p.StartsWith($_, [System.StringComparison]::OrdinalIgnoreCase) }) -and -not ($excludeExt -contains $ext) -and -not ($excludeNames -contains $_.Name) };" ^
@@ -176,7 +176,8 @@ REM Server helper scripts/docs for the copy target.
   echo Default Linux source: /home/paradigm/memorymanager
   echo Copy the deploy package contents there before running the sync script.
   echo Live server companion registry, memory packets, directives, and proof files are preserved by sync.
-  echo KJV reading source is packaged as kjv.txt for the Daily Check-In schedule.
+  echo Project assets, project todos, and reading progress are preserved by sync.
+  echo KJV reading source is packaged as kjv.txt for the Spiritual Daily Reading schedule.
   echo Daily check-ins are stored in control_data/daily_checkins.json and are preserved by sync.
   echo Tracker imports are packaged from tracker_data when present.
   echo.

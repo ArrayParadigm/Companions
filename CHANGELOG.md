@@ -5,15 +5,17 @@
 ### Added
 
 - Renamed the tracker-facing console area to Daily Check-ins and added summary, check-in, journal, and physical tabs.
-- Added a Spiritual area with Daily Reading, Extra Reading, and Prayer tabs, including prayer subcategories for gratitude, requests, repentance, service, and closeness.
+- Added a Spiritual area with Summary, Daily Reading, Extra Reading, and Prayer behavior through daily reading progress, extra Bible chapter reading, and prayer subcategories for gratitude, requests, repentance, service, and closeness.
 - Added a Projects area with Home Maintenance, Vehicle Maintenance, and Tech Projects tabs.
-- Added project todos with project pages for status, offering info, notes, and next steps stored in `control_data/project_todos.json`.
+- Added project todos with new-tab project pages for status, dates, expenses, scanned receipts, pictures, tasks, work logs, offering info, notes, and next steps.
+- Added persistent reading progress stored in `control_data/reading_progress.json`, including Bible chapter completion percentage.
 
 ### Changed
 
 - Bumped the release file to `Version-0.1.9.md`.
 - Updated Linux sync validation to require `kjv.txt` with the deploy source.
 - Updated docs to describe Daily Check-ins, Spiritual, Projects, and project todo runtime data.
+- Moved detailed spiritual controls out of Daily Check-ins; that form now keeps only a daily-reading completion checkbox.
 
 ## 0.1.8 - 2026-07-04
 

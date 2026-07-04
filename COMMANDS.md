@@ -50,8 +50,13 @@ control_data/daily_checkins.json
 
 Each check-in uses nested `body`, `mind`, `spirit`, `work`, and `relationships`
 sections so the dashboard can render daily state, history, and category summaries.
-The `spirit` section also stores Bible reading plan, selected reading, checked-off
-sections, reading minutes, and reading status from the Daily Check-In tab.
+The `spirit` section only records the Daily Check-ins reading-complete
+confirmation. Detailed Bible chapter progress is managed from the Spiritual tab
+and stored in:
+
+```text
+control_data/reading_progress.json
+```
 
 ## Project Todo Data
 
@@ -62,4 +67,10 @@ control_data/project_todos.json
 ```
 
 Project categories are Home Maintenance, Vehicle Maintenance, and Tech Projects.
-Each todo opens as a project page with status, offering info, notes, and next step.
+Each todo opens as a separate project page with status, dates, expenses, scanned
+receipts, pictures, tasks, work log, offering info, notes, and next step.
+Uploaded project assets are stored in:
+
+```text
+project_assets/
+```
