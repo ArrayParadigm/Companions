@@ -2,6 +2,7 @@ import cgi
 import argparse
 import base64
 import binascii
+import contextvars
 import copy
 import json
 import math
@@ -12,7 +13,7 @@ import shutil
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, unquote, urlparse
+from urllib.parse import parse_qs, quote, unquote, urlparse
 
 from Memory_Manager import (
     CATEGORIES,
@@ -34,6 +35,7 @@ PROJECT_PARENT = APP_DIR.parent
 DATA_DIR = APP_DIR / "control_data"
 PROOF_DIR = APP_DIR / "proof_vault"
 PROJECT_ASSET_DIR = APP_DIR / "project_assets"
+USERS_FILE = DATA_DIR / "users.json"
 DIRECTIVES_FILE = DATA_DIR / "directives.json"
 PROOF_FILE = DATA_DIR / "proof_metadata.json"
 CHECKINS_FILE = DATA_DIR / "daily_checkins.json"
@@ -43,6 +45,8 @@ CHORES_FILE = DATA_DIR / "chores.json"
 DIET_FILE = DATA_DIR / "diet.json"
 KJV_FILE = APP_DIR / "kjv.txt"
 DAILY_SCHEDULE_PLAN = "KJV Daily Schedule"
+ARRAY_PROFILE = "Array"
+CURRENT_PROFILE = contextvars.ContextVar("current_profile", default=ARRAY_PROFILE)
 
 PROJECT_CATEGORIES = {
     "home": "Home Maintenance",
@@ -100,6 +104,161 @@ TRACKER_FILES = {
     ),
 }
 
+
+def normalize_profile_name(name):
+    cleaned = re.sub(r"\s+", " ", str(name or "").strip())
+    return cleaned or ARRAY_PROFILE
+
+
+def is_array_profile(name):
+    return normalize_profile_name(name).lower() == ARRAY_PROFILE.lower()
+
+
+def profile_slug(name):
+    return safe_name(normalize_profile_name(name)).lower() or "profile"
+
+
+def profile_folder(name):
+    return DATA_DIR / "users" / profile_slug(name)
+
+
+def default_profile(name, display_name=None):
+    clean_name = normalize_profile_name(name)
+    return {
+        "name": clean_name,
+        "display_name": str(display_name or clean_name).strip() or clean_name,
+        "role": "owner" if is_array_profile(clean_name) else "user",
+        "created_at": now_stamp(),
+        "updated_at": now_stamp(),
+    }
+
+
+def user_store():
+    if not USERS_FILE.exists():
+        write_json(USERS_FILE, {"profiles": [default_profile(ARRAY_PROFILE)]})
+    store = read_json(USERS_FILE, {"profiles": []})
+    profiles = store.setdefault("profiles", [])
+    if not any(is_array_profile(profile.get("name")) for profile in profiles):
+        profiles.insert(0, default_profile(ARRAY_PROFILE))
+        write_json(USERS_FILE, store)
+    return store
+
+
+def ensure_user_profile(name):
+    clean_name = normalize_profile_name(name)
+    store = user_store()
+    for profile in store.get("profiles", []):
+        if normalize_profile_name(profile.get("name")).lower() == clean_name.lower():
+            profile["name"] = normalize_profile_name(profile.get("name"))
+            profile.setdefault("display_name", profile["name"])
+            profile["role"] = "owner" if is_array_profile(profile["name"]) else profile.get("role", "user")
+            return profile
+    profile = default_profile(clean_name)
+    store.setdefault("profiles", []).append(profile)
+    write_json(USERS_FILE, store)
+    ensure_profile_data_files(profile["name"])
+    return profile
+
+
+def create_user_profile(data):
+    name = normalize_profile_name(data.get("name"))
+    if is_array_profile(name):
+        raise ValueError("Array already exists.")
+    store = user_store()
+    if any(normalize_profile_name(profile.get("name")).lower() == name.lower() for profile in store.get("profiles", [])):
+        raise ValueError(f"Profile already exists: {name}")
+    profile = default_profile(name, data.get("display_name"))
+    store.setdefault("profiles", []).append(profile)
+    write_json(USERS_FILE, store)
+    ensure_profile_data_files(profile["name"])
+    return profile
+
+
+def update_user_profile(name, data):
+    clean_name = normalize_profile_name(name)
+    store = user_store()
+    for profile in store.get("profiles", []):
+        if normalize_profile_name(profile.get("name")).lower() == clean_name.lower():
+            if "display_name" in data:
+                profile["display_name"] = str(data.get("display_name") or profile.get("name") or clean_name).strip() or clean_name
+            profile["updated_at"] = now_stamp()
+            write_json(USERS_FILE, store)
+            return profile
+    raise ValueError(f"Profile not found: {clean_name}")
+
+
+def public_profiles():
+    return [
+        {
+            "name": profile.get("name", ""),
+            "display_name": profile.get("display_name") or profile.get("name", ""),
+            "role": "owner" if is_array_profile(profile.get("name")) else profile.get("role", "user"),
+        }
+        for profile in user_store().get("profiles", [])
+    ]
+
+
+def active_profile_name():
+    return normalize_profile_name(CURRENT_PROFILE.get())
+
+
+def active_profile():
+    return ensure_user_profile(active_profile_name())
+
+
+def active_has_companion_access():
+    return is_array_profile(active_profile_name())
+
+
+def profile_data_file(filename, profile_name=None):
+    name = normalize_profile_name(profile_name or active_profile_name())
+    if is_array_profile(name):
+        return DATA_DIR / filename
+    return profile_folder(name) / filename
+
+
+def profile_tracker_files(profile_name=None):
+    name = normalize_profile_name(profile_name or active_profile_name())
+    if is_array_profile(name):
+        return TRACKER_FILES
+    tracker_dir = profile_folder(name) / "tracker_data"
+    return {
+        "journal": tracker_dir / "journal.json",
+        "tasks": tracker_dir / "tasks.json",
+        "physical": tracker_dir / "physical.json",
+    }
+
+
+def active_project_asset_dir():
+    if active_has_companion_access():
+        return PROJECT_ASSET_DIR
+    return PROJECT_ASSET_DIR / profile_slug(active_profile_name())
+
+
+def ensure_profile_data_files(profile_name=None):
+    name = normalize_profile_name(profile_name or active_profile_name())
+    if is_array_profile(name):
+        return
+    folder = profile_folder(name)
+    folder.mkdir(parents=True, exist_ok=True)
+    files = {
+        "daily_checkins.json": {"next_checkin_number": 1, "entries": []},
+        "project_todos.json": {"next_project_todo_number": 1, "todos": []},
+        "reading_progress.json": {"completed": {}, "updated_at": ""},
+        "chores.json": {"next_chore_number": 1, "chores": []},
+        "diet.json": {"next_inventory_number": 1, "next_food_number": 1, "inventory": [], "food_diary": []},
+    }
+    for filename, fallback in files.items():
+        path = folder / filename
+        if not path.exists():
+            write_json(path, fallback)
+    tracker_dir = folder / "tracker_data"
+    tracker_dir.mkdir(parents=True, exist_ok=True)
+    for filename in ("journal.json", "tasks.json", "physical.json"):
+        path = tracker_dir / filename
+        if not path.exists():
+            write_json(path, [])
+
 PSALM_119_SECTIONS = [
     {"id": f"psalm-119-{start}-{start + 7}", "label": f"Psalm 119:{start}-{start + 7}"}
     for start in range(1, 176, 8)
@@ -140,6 +299,8 @@ def ensure_data_files():
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     PROOF_DIR.mkdir(parents=True, exist_ok=True)
     PROJECT_ASSET_DIR.mkdir(parents=True, exist_ok=True)
+    if not USERS_FILE.exists():
+        write_json(USERS_FILE, {"profiles": [default_profile(ARRAY_PROFILE)]})
     if not DIRECTIVES_FILE.exists():
         write_json(DIRECTIVES_FILE, {"next_directive_number": 1, "directives": []})
     if not PROOF_FILE.exists():
@@ -196,27 +357,32 @@ def proof_store():
 
 def checkin_store():
     ensure_data_files()
-    return read_json(CHECKINS_FILE, {"next_checkin_number": 1, "entries": []})
+    ensure_profile_data_files()
+    return read_json(profile_data_file("daily_checkins.json"), {"next_checkin_number": 1, "entries": []})
 
 
 def project_todo_store():
     ensure_data_files()
-    return read_json(PROJECT_TODOS_FILE, {"next_project_todo_number": 1, "todos": []})
+    ensure_profile_data_files()
+    return read_json(profile_data_file("project_todos.json"), {"next_project_todo_number": 1, "todos": []})
 
 
 def reading_progress_store():
     ensure_data_files()
-    return read_json(READING_PROGRESS_FILE, {"completed": {}, "updated_at": ""})
+    ensure_profile_data_files()
+    return read_json(profile_data_file("reading_progress.json"), {"completed": {}, "updated_at": ""})
 
 
 def chore_store():
     ensure_data_files()
-    return read_json(CHORES_FILE, {"next_chore_number": 1, "chores": []})
+    ensure_profile_data_files()
+    return read_json(profile_data_file("chores.json"), {"next_chore_number": 1, "chores": []})
 
 
 def diet_store():
     ensure_data_files()
-    return read_json(DIET_FILE, {"next_inventory_number": 1, "next_food_number": 1, "inventory": [], "food_diary": []})
+    ensure_profile_data_files()
+    return read_json(profile_data_file("diet.json"), {"next_inventory_number": 1, "next_food_number": 1, "inventory": [], "food_diary": []})
 
 
 def next_id(store, counter_name, prefix):
@@ -342,7 +508,7 @@ def mark_reading_complete(data):
         "completed_at": now_stamp(),
     }
     store["updated_at"] = now_stamp()
-    write_json(READING_PROGRESS_FILE, store)
+    write_json(profile_data_file("reading_progress.json"), store)
     return completed[reading_id]
 
 
@@ -505,12 +671,12 @@ def create_checkin(data):
         },
     }
     store["entries"].append(entry)
-    write_json(CHECKINS_FILE, store)
+    write_json(profile_data_file("daily_checkins.json"), store)
     return entry
 
 
 def create_journal_entry(data):
-    path = TRACKER_FILES["journal"]
+    path = profile_tracker_files()["journal"]
     entries = read_json(path, [])
     entry = {
         "timestamp": now_stamp().replace("T", " "),
@@ -526,7 +692,7 @@ def create_journal_entry(data):
 
 
 def create_fitness_entry(data):
-    path = TRACKER_FILES["physical"]
+    path = profile_tracker_files()["physical"]
     entries = read_json(path, [])
     exercises = clean_string_list(data.get("exercises"))
     entry = {
@@ -560,7 +726,7 @@ def create_chore(data):
     if not chore["title"]:
         raise ValueError("Chore title is required.")
     store.setdefault("chores", []).append(chore)
-    write_json(CHORES_FILE, store)
+    write_json(profile_data_file("chores.json"), store)
     return chore
 
 
@@ -572,7 +738,7 @@ def update_chore(chore_id, data):
                 if key in data:
                     chore[key] = str(data[key]).strip()
             chore["updated_at"] = now_stamp()
-            write_json(CHORES_FILE, store)
+            write_json(profile_data_file("chores.json"), store)
             return chore
     raise ValueError(f"Chore not found: {chore_id}")
 
@@ -583,7 +749,7 @@ def delete_chore(chore_id):
     for index, chore in enumerate(chores):
         if chore.get("id", "").lower() == chore_id.lower():
             removed = chores.pop(index)
-            write_json(CHORES_FILE, store)
+            write_json(profile_data_file("chores.json"), store)
             return removed
     raise ValueError(f"Chore not found: {chore_id}")
 
@@ -608,7 +774,7 @@ def create_inventory_item(data):
     if not item["name"]:
         raise ValueError("Inventory item name is required.")
     store.setdefault("inventory", []).append(item)
-    write_json(DIET_FILE, store)
+    write_json(profile_data_file("diet.json"), store)
     return item
 
 
@@ -625,7 +791,7 @@ def update_inventory_item(item_id, data):
             if item.get("container_size", 0) <= 0:
                 item["container_size"] = 1
             item["updated_at"] = now_stamp()
-            write_json(DIET_FILE, store)
+            write_json(profile_data_file("diet.json"), store)
             return item
     raise ValueError(f"Inventory item not found: {item_id}")
 
@@ -636,7 +802,7 @@ def adjust_inventory_item(item_id, amount):
         if item.get("id", "").lower() == item_id.lower():
             item["on_hand"] = max(0, clean_float(item.get("on_hand"), default=0) + amount)
             item["updated_at"] = now_stamp()
-            write_json(DIET_FILE, store)
+            write_json(profile_data_file("diet.json"), store)
             return item
     raise ValueError(f"Inventory item not found: {item_id}")
 
@@ -655,7 +821,7 @@ def create_food_entry(data):
     if not entry["food"]:
         raise ValueError("Food entry text is required.")
     store.setdefault("food_diary", []).append(entry)
-    write_json(DIET_FILE, store)
+    write_json(profile_data_file("diet.json"), store)
     return entry
 
 
@@ -763,7 +929,7 @@ def create_project_todo(data):
     if not todo["title"]:
         raise ValueError("Project todo title is required.")
     store["todos"].append(todo)
-    write_json(PROJECT_TODOS_FILE, store)
+    write_json(profile_data_file("project_todos.json"), store)
     return todo
 
 
@@ -781,7 +947,7 @@ def update_project_todo(todo_id, data):
             if "category" in data:
                 todo["category"] = normalize_project_category(data.get("category"))
             todo["updated_at"] = now_stamp()
-            write_json(PROJECT_TODOS_FILE, store)
+            write_json(profile_data_file("project_todos.json"), store)
             return todo
     raise ValueError(f"Project todo not found: {todo_id}")
 
@@ -792,8 +958,8 @@ def delete_project_todo(todo_id):
     for index, todo in enumerate(todos):
         if todo.get("id", "").lower() == todo_id.lower():
             removed = todos.pop(index)
-            write_json(PROJECT_TODOS_FILE, store)
-            shutil.rmtree(PROJECT_ASSET_DIR / safe_name(todo_id), ignore_errors=True)
+            write_json(profile_data_file("project_todos.json"), store)
+            shutil.rmtree(active_project_asset_dir() / safe_name(todo_id), ignore_errors=True)
             return removed
     raise ValueError(f"Project todo not found: {todo_id}")
 
@@ -820,7 +986,7 @@ def create_project_asset(form):
         if todo.get("id", "").lower() == todo_id.lower():
             safe_project = safe_name(todo_id)
             original_name = safe_name(Path(item.filename).name)
-            target_dir = PROJECT_ASSET_DIR / safe_project
+            target_dir = active_project_asset_dir() / safe_project
             target_dir.mkdir(parents=True, exist_ok=True)
             asset_id = f"AST-{len(todo.get('assets', [])) + 1:04d}"
             target_path = target_dir / f"{asset_id}-{original_name}"
@@ -837,12 +1003,12 @@ def create_project_asset(form):
             }
             todo.setdefault("assets", []).append(asset)
             todo["updated_at"] = now_stamp()
-            write_json(PROJECT_TODOS_FILE, store)
+            write_json(profile_data_file("project_todos.json"), store)
             return asset
     raise ValueError(f"Project todo not found: {todo_id}")
 
 
-def render_project_page(todo_id):
+def render_project_page(todo_id, profile_name=None):
     todo = project_todo_by_id(todo_id)
     category = PROJECT_CATEGORIES.get(todo.get("category"), todo.get("category", ""))
     detail = project_category_detail(todo.get("category"))
@@ -851,6 +1017,7 @@ def render_project_page(todo_id):
     todo_json = json.dumps(todo)
     categories_json = json.dumps(PROJECT_CATEGORIES)
     detail_json = json.dumps(detail)
+    profile_query = f"?profile={quote(normalize_profile_name(profile_name or active_profile_name()))}"
     return f"""<!doctype html>
 <html lang="en">
 <head>
@@ -939,10 +1106,11 @@ def render_project_page(todo_id):
       <div><h2>Notes</h2><pre id="notesView">{html_escape(todo.get('notes', ''))}</pre></div>
     </section>
   </main>
-  <script>
+    <script>
     let project = {todo_json};
     const categories = {categories_json};
     const initialCategoryDetails = {detail_json};
+    const profileQuery = "{profile_query}";
 
     function escapeHtml(value) {{
       return String(value || '').replace(/[&<>"']/g, char => ({{'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;'}}[char]));
@@ -981,7 +1149,7 @@ def render_project_page(todo_id):
     }}
 
     async function saveProject() {{
-      const res = await fetch(`/api/project-todos/${{encodeURIComponent(project.id)}}`, {{
+      const res = await fetch(`/api/project-todos/${{encodeURIComponent(project.id)}}${{profileQuery}}`, {{
         method: 'PATCH',
         headers: {{ 'Content-Type': 'application/json' }},
         body: JSON.stringify(bodyFromForm())
@@ -1000,7 +1168,7 @@ def render_project_page(todo_id):
 
     async function deleteProject() {{
       if (!confirm(`Delete project "${{project.title}}"? This removes the project record and uploaded files for it.`)) return;
-      const res = await fetch(`/api/project-todos/${{encodeURIComponent(project.id)}}`, {{ method: 'DELETE' }});
+      const res = await fetch(`/api/project-todos/${{encodeURIComponent(project.id)}}${{profileQuery}}`, {{ method: 'DELETE' }});
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Delete failed.');
       document.body.innerHTML = '<main><h1>Project deleted</h1><p class="muted">This project record was removed. You can close this tab.</p></main>';
@@ -1032,7 +1200,7 @@ def render_project_page(todo_id):
     document.getElementById('assetForm').addEventListener('submit', async event => {{
       event.preventDefault();
       const form = new FormData(event.target);
-      const res = await fetch('/api/project-assets/upload', {{ method: 'POST', body: form }});
+      const res = await fetch(`/api/project-assets/upload${{profileQuery}}`, {{ method: 'POST', body: form }});
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Upload failed.');
       location.reload();
@@ -1486,9 +1654,10 @@ def apply_commands(companion, command_text):
 
 
 def tracker_data(reading_plans=None):
-    journal = read_json(TRACKER_FILES["journal"], [])
-    tasks = read_json(TRACKER_FILES["tasks"], [])
-    physical = read_json(TRACKER_FILES["physical"], [])
+    tracker_files = profile_tracker_files()
+    journal = read_json(tracker_files["journal"], [])
+    tasks = read_json(tracker_files["tasks"], [])
+    physical = read_json(tracker_files["physical"], [])
     checkins = checkin_store().get("entries", [])
     task_categories = {}
     for item in tasks:
@@ -1531,34 +1700,44 @@ def directive_summary(directives):
 
 
 def app_state():
+    profile = active_profile()
+    companion_access = active_has_companion_access()
     companions = []
-    for companion in COMPANION_FILES:
-        item = {
-            "name": companion,
-            "file": COMPANION_FILES[companion].name,
-            "summary": "",
-            "index": [],
-            "error": None,
-        }
-        try:
-            payload = load_payload(companion)
-            item["summary"] = packet_summary(companion, payload)
-            item["index"] = companion_index(companion)
-        except Exception as exc:
-            item["summary"] = f"Unable to load {COMPANION_FILES[companion].name}."
-            item["error"] = str(exc)
-        companions.append(item)
+    if companion_access:
+        for companion in COMPANION_FILES:
+            item = {
+                "name": companion,
+                "file": COMPANION_FILES[companion].name,
+                "summary": "",
+                "index": [],
+                "error": None,
+            }
+            try:
+                payload = load_payload(companion)
+                item["summary"] = packet_summary(companion, payload)
+                item["index"] = companion_index(companion)
+            except Exception as exc:
+                item["summary"] = f"Unable to load {COMPANION_FILES[companion].name}."
+                item["error"] = str(exc)
+            companions.append(item)
 
-    directives = directive_store().get("directives", [])
+    directives = directive_store().get("directives", []) if companion_access else []
     daily_schedule = daily_reading_schedule()
     reading_plans = current_reading_plans(daily_schedule)
     trackers = tracker_data(reading_plans)
     return {
+        "profile": profile,
+        "profiles": public_profiles(),
+        "access": {
+            "companions": companion_access,
+            "directives": companion_access,
+            "proof": companion_access,
+        },
         "companions": companions,
-        "categories": list(CATEGORIES.keys()),
+        "categories": list(CATEGORIES.keys()) if companion_access else [],
         "directives": directives,
         "directive_summary": directive_summary(directives),
-        "proof": proof_store().get("proof", []),
+        "proof": proof_store().get("proof", []) if companion_access else [],
         "trackers": trackers,
         "reading_plans": reading_plans,
         "reading_progress": reading_progress_state(),
@@ -1603,6 +1782,22 @@ INDEX_HTML = r"""<!doctype html>
       padding: 14px 18px;
       border-bottom: 1px solid var(--line);
       background: #0d1013;
+      gap: 12px;
+    }
+    .profile-bar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+    .profile-bar select, .profile-bar input {
+      width: auto;
+      min-width: 130px;
+      margin: 0;
+    }
+    .profile-bar button.inline {
+      padding: 7px 9px;
     }
     h1 { font-size: 18px; margin: 0; font-weight: 650; }
     main {
@@ -1807,30 +2002,37 @@ INDEX_HTML = r"""<!doctype html>
 <body>
   <header>
     <h1>Companion Control Console</h1>
-    <div class="status" id="status">Loading...</div>
+    <div class="profile-bar">
+      <select id="profileSelect"></select>
+      <input id="profileRegisterName" placeholder="new profile">
+      <button class="inline" id="profileLoginButton">Log In</button>
+      <button class="inline" id="profileRegisterButton">Register</button>
+      <button class="inline" id="profileSettingsButton">Profile Settings</button>
+      <div class="status" id="status">Loading...</div>
+    </div>
   </header>
   <main>
     <nav>
       <button data-tab="dashboard" class="active">Dashboard</button>
-      <button data-tab="memory">Companion</button>
-      <button data-tab="directives" style="display:none;">Directive Ledger</button>
-      <button data-tab="proof" style="display:none;">Proof Vault</button>
+      <button data-tab="memory" data-companion-only>Companion</button>
+      <button data-tab="directives" data-companion-only data-default-hidden style="display:none;">Directive Ledger</button>
+      <button data-tab="proof" data-companion-only data-default-hidden style="display:none;">Proof Vault</button>
       <button data-tab="trackers">Daily Check-ins</button>
       <button data-tab="fitness">Fitness</button>
       <button data-tab="spiritual">Spiritual</button>
       <button data-tab="projects">Projects</button>
       <button data-tab="chores">Chores</button>
       <button data-tab="diet">Diet</button>
-      <button data-tab="council" style="display:none;">Council Mode</button>
+      <button data-tab="council" data-companion-only data-default-hidden style="display:none;">Council Mode</button>
     </nav>
     <section id="dashboard" class="active">
       <div class="dashboard-grid">
-        <div class="panel">
+        <div class="panel" data-companion-only>
           <h2>Memory Manager</h2>
           <div class="metric" id="dashCompanions">0</div>
           <div class="muted" id="dashMemory">No packets loaded.</div>
         </div>
-        <div class="panel">
+        <div class="panel" data-companion-only>
           <h2>Directives</h2>
           <div class="metric" id="dashDirectives">0</div>
           <div class="muted" id="dashDirectiveDetail"></div>
@@ -1855,7 +2057,7 @@ INDEX_HTML = r"""<!doctype html>
         </div>
       </div>
     </section>
-    <section id="memory">
+    <section id="memory" data-companion-only>
       <div class="grid">
         <div class="panel full">
           <h2>Companion</h2>
@@ -1918,7 +2120,7 @@ INDEX_HTML = r"""<!doctype html>
         </div>
       </div>
     </section>
-    <section id="directives">
+    <section id="directives" data-companion-only>
       <div class="grid">
         <div class="panel full">
           <h2>Companion</h2>
@@ -1968,7 +2170,7 @@ INDEX_HTML = r"""<!doctype html>
         </div>
       </div>
     </section>
-    <section id="proof">
+    <section id="proof" data-companion-only>
       <div class="grid">
         <div class="panel full">
           <h2>Companion</h2>
@@ -2310,7 +2512,7 @@ INDEX_HTML = r"""<!doctype html>
         </div>
       </div>
     </section>
-    <section id="council">
+    <section id="council" data-companion-only>
       <div class="panel">
         <h2>Companion</h2>
         <div class="tab-row">
@@ -2335,6 +2537,63 @@ INDEX_HTML = r"""<!doctype html>
     let selectedProjectCategory = 'home';
     let selectedProjectTodoId = null;
     let selectedDietTab = 'summary';
+
+    const nativeFetch = window.fetch.bind(window);
+    function activeProfileName() {
+      return localStorage.getItem('companionConsoleProfile') || 'Array';
+    }
+    function setActiveProfile(name) {
+      localStorage.setItem('companionConsoleProfile', name || 'Array');
+    }
+    function profileQuery() {
+      return `?profile=${encodeURIComponent(activeProfileName())}`;
+    }
+    window.fetch = (resource, options = {}) => {
+      const requestOptions = Object.assign({}, options);
+      const headers = new Headers(requestOptions.headers || {});
+      headers.set('X-Profile', activeProfileName());
+      requestOptions.headers = headers;
+      return nativeFetch(resource, requestOptions);
+    };
+
+    document.getElementById('profileLoginButton').addEventListener('click', async () => {
+      setActiveProfile(document.getElementById('profileSelect').value || 'Array');
+      selectedCompanion = null;
+      selectedProjectTodoId = null;
+      await loadState();
+    });
+
+    document.getElementById('profileRegisterButton').addEventListener('click', async () => {
+      const name = document.getElementById('profileRegisterName').value.trim();
+      if (!name) {
+        setStatus('Enter a profile name.');
+        return;
+      }
+      const res = await fetch('/api/users', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name })
+      });
+      const data = await handleResponse(res);
+      setActiveProfile(data.profile.name);
+      document.getElementById('profileRegisterName').value = '';
+      selectedCompanion = null;
+      selectedProjectTodoId = null;
+      await loadState();
+    });
+
+    document.getElementById('profileSettingsButton').addEventListener('click', async () => {
+      const current = state && state.profile ? state.profile.display_name : activeProfileName();
+      const displayName = prompt('Display name', current || activeProfileName());
+      if (displayName === null) return;
+      const res = await fetch('/api/profile', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ display_name: displayName })
+      });
+      await handleResponse(res);
+      await loadState();
+    });
 
     document.querySelectorAll('nav button').forEach(button => {
       button.addEventListener('click', () => {
@@ -2441,11 +2700,9 @@ INDEX_HTML = r"""<!doctype html>
     async function loadState() {
       const res = await fetch('/api/state');
       state = await handleResponse(res, false);
-      if (!state.companions.length) {
-        setStatus('No companions configured.');
-        return;
-      }
-      selectedCompanion = selectedCompanion || state.companions[0].name;
+      renderProfileControls();
+      applyAccessControls();
+      selectedCompanion = state.companions.length ? (selectedCompanion || state.companions[0].name) : null;
       renderSelectors();
       renderDashboard();
       renderDirectives();
@@ -2456,23 +2713,51 @@ INDEX_HTML = r"""<!doctype html>
       renderChores();
       renderDiet();
       renderCouncil();
-      await loadPacket();
+      if ((state.access || {}).companions && selectedCompanion) {
+        await loadPacket();
+        renderMemoryIndex();
+      }
       renderMemoryIndex();
       setStatus('Ready.');
+    }
+
+    function renderProfileControls() {
+      const profiles = state.profiles || [];
+      const currentName = (state.profile || {}).name || activeProfileName();
+      setActiveProfile(currentName);
+      document.getElementById('profileSelect').innerHTML = profiles.map(profile => `<option value="${escapeHtml(profile.name)}">${escapeHtml(profile.display_name || profile.name)}</option>`).join('');
+      document.getElementById('profileSelect').value = currentName;
+    }
+
+    function applyAccessControls() {
+      const companionAccess = Boolean((state.access || {}).companions);
+      document.querySelectorAll('[data-companion-only]').forEach(element => {
+        element.style.display = companionAccess && !element.dataset.defaultHidden ? '' : 'none';
+      });
+      if (!companionAccess) {
+        for (const tab of ['memory', 'directives', 'proof', 'council']) {
+          document.querySelectorAll(`section#${tab}`).forEach(section => section.classList.remove('active'));
+        }
+        if (!document.querySelector('section.active')) {
+          document.querySelector('button[data-tab="dashboard"]').click();
+        }
+      }
     }
 
     function renderSelectors() {
       const companionOptions = state.companions.map(c => `<option value="${escapeHtml(c.name)}">${escapeHtml(c.name)}</option>`).join('');
       for (const id of ['companionSelect', 'directiveIssuer']) {
         const select = document.getElementById(id);
+        if (!select) continue;
         select.innerHTML = companionOptions;
-        select.value = selectedCompanion;
+        if (selectedCompanion) select.value = selectedCompanion;
       }
-      document.getElementById('categorySelect').innerHTML = state.categories.map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('');
-      document.getElementById('proofDirective').innerHTML = state.directives.map(d => `<option value="${escapeHtml(d.id)}">${escapeHtml(d.id)} - ${escapeHtml(d.title)}</option>`).join('');
+      document.getElementById('categorySelect').innerHTML = (state.categories || []).map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('');
+      document.getElementById('proofDirective').innerHTML = (state.directives || []).map(d => `<option value="${escapeHtml(d.id)}">${escapeHtml(d.id)} - ${escapeHtml(d.title)}</option>`).join('');
     }
 
     async function loadPacket() {
+      if (!selectedCompanion) return;
       const res = await fetch(`/api/companion/${encodeURIComponent(selectedCompanion)}/packet`);
       const data = await handleResponse(res, false);
       document.getElementById('packetBox').value = data.packet;
@@ -2483,6 +2768,7 @@ INDEX_HTML = r"""<!doctype html>
     }
 
     function renderMemoryIndex() {
+      if (!((state.access || {}).companions)) return;
       const companion = currentCompanion();
       if (!companion) {
         document.getElementById('memoryIndex').innerHTML = '<p class="muted">No companion selected.</p>';
@@ -2498,13 +2784,16 @@ INDEX_HTML = r"""<!doctype html>
 
     function renderDashboard() {
       const summary = state.trackers.summary;
-      const directiveSummary = state.directive_summary;
+      const companionAccess = Boolean((state.access || {}).companions);
+      const directiveSummary = state.directive_summary || { issued: 0, complete: 0, failed: 0, proof_required: 0 };
       const latest = state.trackers.latest_checkin;
-      const memoryRows = state.companions.reduce((count, companion) => count + (companion.index || []).length, 0);
-      document.getElementById('dashCompanions').textContent = state.companions.length;
-      document.getElementById('dashMemory').textContent = `${memoryRows} indexed memory IDs`;
-      document.getElementById('dashDirectives').textContent = state.directives.length;
-      document.getElementById('dashDirectiveDetail').textContent = `${directiveSummary.issued} issued, ${directiveSummary.complete} complete, ${directiveSummary.failed} failed, ${directiveSummary.proof_required} proof required`;
+      if (companionAccess) {
+        const memoryRows = state.companions.reduce((count, companion) => count + (companion.index || []).length, 0);
+        document.getElementById('dashCompanions').textContent = state.companions.length;
+        document.getElementById('dashMemory').textContent = `${memoryRows} indexed memory IDs`;
+        document.getElementById('dashDirectives').textContent = state.directives.length;
+        document.getElementById('dashDirectiveDetail').textContent = `${directiveSummary.issued} issued, ${directiveSummary.complete} complete, ${directiveSummary.failed} failed, ${directiveSummary.proof_required} proof required`;
+      }
       document.getElementById('dashPhysical').textContent = summary.physical_entries;
       document.getElementById('dashPhysicalDetail').textContent = latest ? `${latest.body.fitness_completed ? 'fitness complete' : 'fitness open'}, ${latest.body.sleep_hours || 0}h sleep latest` : 'No daily check-in yet.';
       document.getElementById('dashSpirit').textContent = latest ? (latest.spirit.scripture ? 'read' : 'open') : '--';
@@ -2622,6 +2911,7 @@ INDEX_HTML = r"""<!doctype html>
     }
 
     function renderDirectives() {
+      if (!((state.access || {}).directives)) return;
       const directives = selectedDirectiveStatus === 'all'
         ? state.directives
         : state.directives.filter(d => String(d.status || 'issued').toLowerCase() === selectedDirectiveStatus);
@@ -2636,6 +2926,7 @@ INDEX_HTML = r"""<!doctype html>
     }
 
     function renderProof() {
+      if (!((state.access || {}).proof)) return;
       const rows = state.proof.map(p => {
         const evidence = p.path || p.note || '';
         const action = p.path ? `<a class="inline" href="/api/proof/${encodeURIComponent(p.id)}/download">Download</a>` : '';
@@ -2812,7 +3103,7 @@ INDEX_HTML = r"""<!doctype html>
       document.getElementById('projectTodoList').innerHTML = todos.length
         ? todos.map(todo => {
             const selected = todo.id === selectedProjectTodoId ? '<span class="pill">selected</span>' : '';
-            return `<div class="todo-row"><strong>${escapeHtml(todo.title)}</strong> ${selected}<br><span class="muted">${escapeHtml(todo.status || 'open')} | added ${escapeHtml(todo.created_at || '')} | started ${escapeHtml(todo.date_started || todo.start_date || '')} | next ${escapeHtml(todo.next_step || '')}</span><br><button class="inline" onclick="selectProjectTodo('${escapeJs(todo.id)}')">Select</button> <a class="inline primary" href="/projects/${encodeURIComponent(todo.id)}" target="_blank">Open page</a> <button class="inline" onclick="loadProjectTodoIntoForm('${escapeJs(todo.id)}')">Edit</button> <button class="inline" onclick="deleteProjectTodo('${escapeJs(todo.id)}')">Delete</button></div>`;
+            return `<div class="todo-row"><strong>${escapeHtml(todo.title)}</strong> ${selected}<br><span class="muted">${escapeHtml(todo.status || 'open')} | added ${escapeHtml(todo.created_at || '')} | started ${escapeHtml(todo.date_started || todo.start_date || '')} | next ${escapeHtml(todo.next_step || '')}</span><br><button class="inline" onclick="selectProjectTodo('${escapeJs(todo.id)}')">Select</button> <a class="inline primary" href="/projects/${encodeURIComponent(todo.id)}${profileQuery()}" target="_blank">Open page</a> <button class="inline" onclick="loadProjectTodoIntoForm('${escapeJs(todo.id)}')">Edit</button> <button class="inline" onclick="deleteProjectTodo('${escapeJs(todo.id)}')">Delete</button></div>`;
           }).join('')
         : '<p class="muted">No projects in this category.</p>';
       renderProjectTodoDetail();
@@ -2848,7 +3139,7 @@ INDEX_HTML = r"""<!doctype html>
       const category = ((state.projects || {}).categories || {})[todo.category] || todo.category;
       const assets = (todo.assets || []).map(asset => `<li><a href="/${escapeHtml(asset.path)}" target="_blank">${escapeHtml(asset.type)}: ${escapeHtml(asset.filename)}</a> <span class="muted">${escapeHtml(asset.note || '')}</span></li>`).join('') || '<li class="muted">No files uploaded.</li>';
       document.getElementById('projectAssetTodoId').value = todo.id;
-      document.getElementById('projectTodoDetail').innerHTML = `<h3>${escapeHtml(todo.title)}</h3><span class="pill">${escapeHtml(category)}</span><span class="pill">${escapeHtml(todo.status || 'open')}</span><p class="muted">Added ${escapeHtml(todo.created_at || '')} | Started ${escapeHtml(todo.date_started || todo.start_date || '')}</p><a class="inline primary" href="/projects/${encodeURIComponent(todo.id)}" target="_blank">Open page</a> <button class="inline" onclick="loadProjectTodoIntoForm('${escapeJs(todo.id)}')">Edit</button> <button class="inline" onclick="setProjectTodoStatus('${escapeJs(todo.id)}','done')">Mark Done</button> <button class="inline" onclick="setProjectTodoStatus('${escapeJs(todo.id)}','open')">Reopen</button> <button class="inline" onclick="deleteProjectTodo('${escapeJs(todo.id)}')">Delete</button><h3>Files</h3><ul>${assets}</ul>`;
+      document.getElementById('projectTodoDetail').innerHTML = `<h3>${escapeHtml(todo.title)}</h3><span class="pill">${escapeHtml(category)}</span><span class="pill">${escapeHtml(todo.status || 'open')}</span><p class="muted">Added ${escapeHtml(todo.created_at || '')} | Started ${escapeHtml(todo.date_started || todo.start_date || '')}</p><a class="inline primary" href="/projects/${encodeURIComponent(todo.id)}${profileQuery()}" target="_blank">Open page</a> <button class="inline" onclick="loadProjectTodoIntoForm('${escapeJs(todo.id)}')">Edit</button> <button class="inline" onclick="setProjectTodoStatus('${escapeJs(todo.id)}','done')">Mark Done</button> <button class="inline" onclick="setProjectTodoStatus('${escapeJs(todo.id)}','open')">Reopen</button> <button class="inline" onclick="deleteProjectTodo('${escapeJs(todo.id)}')">Delete</button><h3>Files</h3><ul>${assets}</ul>`;
     }
 
     function projectTodoBodyFromForm() {
@@ -3196,6 +3487,7 @@ INDEX_HTML = r"""<!doctype html>
     }
 
     function renderCouncil() {
+      if (!((state.access || {}).companions)) return;
       document.getElementById('councilCompanions').innerHTML = state.companions.map(c => `<div class="panel" style="margin-bottom: 10px;"><h3>${escapeHtml(c.name)}</h3><p class="muted">${escapeHtml(c.summary)}</p><button class="inline primary" onclick="selectedCompanion='${escapeJs(c.name)}'; document.getElementById('companionSelect').value=selectedCompanion; copyHandoff();">Copy ${escapeHtml(c.name)} Handoff</button></div>`).join('');
     }
 
@@ -3274,9 +3566,23 @@ class CompanionWebHandler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
         print("[%s] %s" % (self.log_date_time_string(), fmt % args))
 
+    def request_profile_name(self, parsed):
+        params = parse_qs(parsed.query)
+        requested = params.get("profile", [""])[0] or self.headers.get("X-Profile", "")
+        return normalize_profile_name(requested)
+
+    def require_companion_access(self):
+        if active_has_companion_access():
+            return True
+        self.send_error_json(403, "Companion controls are only available to Array.")
+        return False
+
     def do_GET(self):
+        token = None
         try:
             parsed = urlparse(self.path)
+            token = CURRENT_PROFILE.set(self.request_profile_name(parsed))
+            ensure_user_profile(active_profile_name())
             path = parsed.path
             if path == "/":
                 self.send_html(INDEX_HTML)
@@ -3295,10 +3601,14 @@ class CompanionWebHandler(BaseHTTPRequestHandler):
                 })
             elif path.startswith("/projects/"):
                 todo_id = unquote(path.rsplit("/", 1)[1])
-                self.send_html(render_project_page(todo_id))
+                self.send_html(render_project_page(todo_id, active_profile_name()))
             elif path.startswith("/api/companion/"):
+                if not self.require_companion_access():
+                    return
                 self.handle_companion_get(path)
             elif path.startswith("/api/proof/") and path.endswith("/download"):
+                if not self.require_companion_access():
+                    return
                 proof_id = unquote(path.split("/")[3])
                 proof = proof_by_id(proof_id)
                 if not proof.get("path"):
@@ -3306,6 +3616,8 @@ class CompanionWebHandler(BaseHTTPRequestHandler):
                     return
                 self.send_file(APP_DIR / proof["path"], as_attachment=True)
             elif path.startswith("/proof_vault/"):
+                if not self.require_companion_access():
+                    return
                 self.send_file(APP_DIR / unquote(path.lstrip("/")))
             elif path.startswith("/project_assets/"):
                 self.send_file(APP_DIR / unquote(path.lstrip("/")))
@@ -3313,23 +3625,40 @@ class CompanionWebHandler(BaseHTTPRequestHandler):
                 self.send_error_json(404, "Not found.")
         except Exception as exc:
             self.send_error_json(500, str(exc))
+        finally:
+            if token is not None:
+                CURRENT_PROFILE.reset(token)
 
     def do_POST(self):
+        token = None
         try:
             parsed = urlparse(self.path)
+            token = CURRENT_PROFILE.set(self.request_profile_name(parsed))
+            ensure_user_profile(active_profile_name())
             path = parsed.path
             if path == "/api/directives":
+                if not self.require_companion_access():
+                    return
                 directive = create_directive(self.read_json_body())
                 self.send_json({"message": f"Created {directive['id']}.", "directive": directive})
             elif path == "/api/companions":
+                if not self.require_companion_access():
+                    return
                 companion = create_companion_record(self.read_json_body())
                 self.send_json({"message": f"Created companion {companion['name']}.", "companion": companion})
             elif path == "/api/directives/parse":
+                if not self.require_companion_access():
+                    return
                 directive = parse_directive_text(self.read_json_body())
                 self.send_json({"message": "Parsed directive draft.", "directive": directive})
             elif path == "/api/proof":
+                if not self.require_companion_access():
+                    return
                 proof = create_text_proof(self.read_json_body())
                 self.send_json({"message": f"Created {proof['id']}.", "proof": proof})
+            elif path == "/api/users":
+                profile = create_user_profile(self.read_json_body())
+                self.send_json({"message": f"Registered {profile['display_name']}.", "profile": profile})
             elif path == "/api/checkins":
                 checkin = create_checkin(self.read_json_body())
                 self.send_json({"message": f"Saved {checkin['id']}.", "checkin": checkin})
@@ -3370,6 +3699,8 @@ class CompanionWebHandler(BaseHTTPRequestHandler):
                 asset = create_project_asset(form)
                 self.send_json({"message": f"Uploaded {asset['id']}.", "asset": asset})
             elif path == "/api/proof/upload":
+                if not self.require_companion_access():
+                    return
                 form = cgi.FieldStorage(
                     fp=self.rfile,
                     headers=self.headers,
@@ -3381,20 +3712,33 @@ class CompanionWebHandler(BaseHTTPRequestHandler):
                 proof = create_file_proof(form)
                 self.send_json({"message": f"Uploaded {proof['id']}.", "proof": proof})
             elif path.startswith("/api/companion/"):
+                if not self.require_companion_access():
+                    return
                 self.handle_companion_post(path)
             else:
                 self.send_error_json(404, "Not found.")
         except Exception as exc:
             self.send_error_json(400, str(exc))
+        finally:
+            if token is not None:
+                CURRENT_PROFILE.reset(token)
 
     def do_PATCH(self):
+        token = None
         try:
             parsed = urlparse(self.path)
+            token = CURRENT_PROFILE.set(self.request_profile_name(parsed))
+            ensure_user_profile(active_profile_name())
             path = parsed.path
             if path.startswith("/api/directives/"):
+                if not self.require_companion_access():
+                    return
                 directive_id = unquote(path.rsplit("/", 1)[1])
                 directive = update_directive(directive_id, self.read_json_body())
                 self.send_json({"message": f"Updated {directive['id']}.", "directive": directive})
+            elif path == "/api/profile":
+                profile = update_user_profile(active_profile_name(), self.read_json_body())
+                self.send_json({"message": f"Updated {profile['display_name']}.", "profile": profile})
             elif path.startswith("/api/project-todos/"):
                 todo_id = unquote(path.rsplit("/", 1)[1])
                 todo = update_project_todo(todo_id, self.read_json_body())
@@ -3416,10 +3760,16 @@ class CompanionWebHandler(BaseHTTPRequestHandler):
                 self.send_error_json(404, "Not found.")
         except Exception as exc:
             self.send_error_json(400, str(exc))
+        finally:
+            if token is not None:
+                CURRENT_PROFILE.reset(token)
 
     def do_DELETE(self):
+        token = None
         try:
             parsed = urlparse(self.path)
+            token = CURRENT_PROFILE.set(self.request_profile_name(parsed))
+            ensure_user_profile(active_profile_name())
             path = parsed.path
             if path.startswith("/api/project-todos/"):
                 todo_id = unquote(path.rsplit("/", 1)[1])
@@ -3433,6 +3783,9 @@ class CompanionWebHandler(BaseHTTPRequestHandler):
                 self.send_error_json(404, "Not found.")
         except Exception as exc:
             self.send_error_json(400, str(exc))
+        finally:
+            if token is not None:
+                CURRENT_PROFILE.reset(token)
 
     def handle_companion_get(self, path):
         parts = [unquote(part) for part in path.split("/") if part]
@@ -3525,7 +3878,9 @@ class CompanionWebHandler(BaseHTTPRequestHandler):
 
     def send_file(self, path, as_attachment=False):
         resolved = path.resolve()
-        if not str(resolved).lower().startswith(str(PROOF_DIR.resolve()).lower()) or not resolved.exists():
+        allowed_roots = [PROOF_DIR.resolve(), PROJECT_ASSET_DIR.resolve()]
+        in_allowed_root = any(str(resolved).lower().startswith(str(root).lower()) for root in allowed_roots)
+        if not in_allowed_root or not resolved.exists():
             self.send_error_json(404, "File not found.")
             return
         body = resolved.read_bytes()

@@ -2,6 +2,17 @@
 
 Command batches can be pasted into the Memory tab. One command goes on each line.
 
+## Profiles
+
+`Array` is the owner profile and is the only profile with Companion, Directive,
+Proof, and Council access. Other registered profiles keep their own Daily
+Check-ins, Journal, Fitness, Spiritual reading progress, Projects, Chores, and
+Diet data under:
+
+```text
+control_data/users/<profile>/
+```
+
 ## Memory Commands
 
 ```text

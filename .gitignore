@@ -35,6 +35,7 @@ dist/
 # Local uploaded proof/runtime spillover
 proof_vault/
 project_assets/
+control_data/users/
 
 # Editor and OS noise
 .vscode/

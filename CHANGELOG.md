@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.1.13 - 2026-07-04
+
+### Added
+
+- Added local user profiles with an `Array` owner profile, profile selector, register button, and profile settings button.
+- Added profile-scoped data folders for non-owner check-ins, journal, fitness, spiritual reading progress, projects, chores, and diet data under `control_data/users/`.
+- Added owner-only access enforcement so only `Array` receives companion memory, directive, proof, and council state or API access.
+
+### Changed
+
+- Bumped the release file to `Version-0.1.13.md`.
+- Updated the dashboard and navigation so non-owner profiles only see the areas they can access, without companion memory or directive cards.
+- Ignored per-profile runtime folders so local user data does not become repo or transfer noise.
+
 ## 0.1.12 - 2026-07-04
 
 ### Added

@@ -1,5 +1,18 @@
 # Test Log
 
+## 2026-07-04 - 0.1.13 TODO Sprint
+
+| Severity | Area | Result | Notes |
+| --- | --- | --- | --- |
+| Info | Profile API/UI smoke | Pass | Temporary server rendered profile selector, register button, settings button, and companion-only markers; registered Bob; confirmed `Array` has companion access and Bob has no companions, directives, or proof state; direct Bob companion packet request returned 403; Bob check-in, journal, fitness, project, and reading progress writes landed under `control_data/users/bob/`; `Array` project state did not include Bob's project; Bob project page preserved `?profile=Bob`. |
+| Info | Static compile | Pass | `python -m py_compile Companion_Web.py Memory_Manager.py` passed. |
+| Info | Compileall | Pass | `python -m compileall -q Companion_Web.py Memory_Manager.py` passed. |
+| Info | Static marker gate | Pass | Static marker check found profile registry, profile header controls, owner-only access markers, profile-scoped data paths, fetch `X-Profile` header injection, and profile API routes; confirmed `journalPrompt` and Daily Check-ins fitness tab markers are absent. |
+| Info | JSON validation | Pass | `companion-files.json`, `control_data/*.json`, and `tracker_data/*.json` parse successfully across 12 files. |
+| Info | Copyover check | Pass | `cmd /c copyover.bat --check` detected `D:\000_Files\002_Projects\EVE\MS\Companions-1`, version `0.1.13`, required `kjv.txt`, and copied no files. |
+| Info | BUGS file | Not found | No `BUGS.md` exists in this repo during the 0.1.13 TODO sprint pass. |
+| Info | Whitespace gate | Pass | `git diff --check` reported no whitespace errors; Git only warned that edited text files will be normalized from LF to CRLF when touched. |
+
 ## 2026-07-04 - 0.1.12 TODO Sprint
 
 | Severity | Area | Result | Notes |

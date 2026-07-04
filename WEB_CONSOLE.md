@@ -31,6 +31,11 @@ http://127.0.0.1:8787
 ## Current Scope
 
 - Companion memory packets stay base64 encoded in the UI.
+- Profiles are selected from the header. `Array` is the owner profile and is
+  the only profile that receives Companion, Directive, Proof, and Council
+  access.
+- Register creates a local profile; Profile Settings updates the active
+  profile display name.
 - New companions can be created from the Companion Memory tab; this writes a live server memory packet and updates the live companion registry.
 - `Copy Handoff` gives a companion plain instructions plus its encoded packet.
 - `Copy Packet` gives only the raw base64 packet.
@@ -54,7 +59,9 @@ http://127.0.0.1:8787
 - Daily Check-ins stores a nested daily journal in `control_data/daily_checkins.json` and keeps only reading and fitness completion checkboxes for those areas.
 - Spiritual Daily Reading carries forward the old Java daily reading schedule using `kjv.txt`: daily Proverbs, five Psalms, and Acts.
 - Spiritual Extra Reading can open whole Bible chapters and stores persistent chapter completion progress, including Psalm 119 section progress in the summary.
-- Dashboard separates memory, directive, spiritual, physical, and work summaries.
+- Dashboard reflects the active profile access. `Array` sees memory and
+  directive cards; non-owner profiles only see their own check-ins, spiritual,
+  fitness, projects, chores, and diet surfaces.
 - Council Mode is a handoff workflow for gathering separate companion perspectives.
 
 ## Companion Update Commands
@@ -92,6 +99,8 @@ Archive behavior:
 ## Data Files
 
 - Companion list: `companion-files.json`
+- Local profiles: `control_data/users.json`
+- Non-owner profile data: `control_data/users/<profile>/`
 - Directive ledger: `control_data/directives.json`
 - Proof metadata: `control_data/proof_metadata.json`
 - Daily check-ins: `control_data/daily_checkins.json`
