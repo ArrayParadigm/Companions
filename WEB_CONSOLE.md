@@ -39,11 +39,15 @@ http://127.0.0.1:8787
 - Directive Ledger stores companion-issued directives and shows date added plus task details in readable plaintext.
 - Directive commands also write a compact history memory into the issuer companion packet when the issuer is configured.
 - Proof Vault stores proof metadata and uploaded proof files under `proof_vault/`, with download links for uploaded files.
-- Daily Check-ins read the existing emotional journal, productivity tracker, and fitness tracker JSON files, with summary, check-in, journal, and fitness tabs.
+- Daily Check-ins read the existing emotional journal, productivity tracker, and fitness tracker JSON files, with summary, check-in, and journal tabs.
 - The Journal tab can add new journal entries.
-- The Fitness tab can add new fitness entries.
+- Journal entries use a clean blank entry box and can be reopened from the previous-entry list.
+- Fitness is a main navigation category and can add new fitness entries.
 - Spiritual owns daily reading, extra reading, persistent Bible chapter progress, and prayer categories for gratitude, requests, repentance, service, and closeness.
 - Projects has Home Maintenance, Vehicle Maintenance, and Tech Projects tabs plus a category selector; Chores is a project category, not a tab.
+- Chores is a main navigation category with its own chore list.
+- Diet is a main navigation category with Summary, Inventory, Shopping List, and Food Diary tabs.
+- Diet inventory tracks on-hand, par, reorder thresholds, container quantity, and cost per container; the shopping list is generated from low inventory and can be copied cleanly.
 - Tech projects use repo/environment/access wording instead of physical-location wording.
 - Project pages track date added, date started, due date, expenses, uploaded expense/task/work-log files, receipts, pictures, tasks, work logs, category-specific info, notes, and next steps.
 - Project pages can edit/save projects and delete them after confirmation.

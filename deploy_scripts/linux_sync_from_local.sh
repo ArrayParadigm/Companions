@@ -77,6 +77,15 @@ sync_files() {
   chmod +x "${APP_DIR}/run_web_console.sh" 2>/dev/null || true
 }
 
+validate_target() {
+  for required in Companion_Web.py Memory_Manager.py kjv.txt; do
+    if [[ ! -f "${APP_DIR}/${required}" ]]; then
+      echo "Target is missing required file after sync: ${required}"
+      exit 1
+    fi
+  done
+}
+
 restart_service() {
   systemctl restart "${SERVICE_NAME}.service"
   systemctl --no-pager --full status "${SERVICE_NAME}.service" || true
@@ -88,6 +97,7 @@ main() {
   validate_source
   backup_current
   sync_files
+  validate_target
   restart_service
 
   echo

@@ -103,7 +103,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "$src = '%src%';" ^
   "$zip = '%ziptemp%';" ^
   "$excludeDirs = @('\.git\','\bkup\','\deploy_package\','\__pycache__\','\.pytest_cache\','\.mypy_cache\','\.ruff_cache\','\.venv\','\venv\','\env\','\htmlcov\','\build\','\dist\','\proof_vault\','\project_assets\');" ^
-  "$excludeExt = @('.pyc','.pyo','.log','.zip','.7z','.tar','.gz','.tmp','.bak','.swp','.swo');" ^
+  "$excludeExt = @('.pyc','.pyo','.log','.class','.jar','.zip','.7z','.tar','.gz','.tmp','.bak','.swp','.swo');" ^
   "$excludeNames = @('Thumbs.db','Desktop.ini','.coverage');" ^
   "$files = Get-ChildItem -LiteralPath $src -Recurse -File -Force | Where-Object { $p = $_.FullName.Substring($src.Length); $ext = $_.Extension.ToLowerInvariant(); -not ($excludeDirs | Where-Object { $p.StartsWith($_, [System.StringComparison]::OrdinalIgnoreCase) }) -and -not ($excludeExt -contains $ext) -and -not ($excludeNames -contains $_.Name) };" ^
   "if (-not $files) { throw 'No files selected for backup archive.' };" ^
@@ -128,7 +128,13 @@ echo Copying deployable web console files...
 
 copy /Y "%src%\Companion_Web.py" "%current%\Companion_Web.py" >nul
 copy /Y "%src%\Memory_Manager.py" "%current%\Memory_Manager.py" >nul
-if exist "%src%\kjv.txt" copy /Y "%src%\kjv.txt" "%current%\kjv.txt" >nul
+copy /Y "%src%\kjv.txt" "%current%\kjv.txt" >nul
+if errorlevel 1 goto :copy_error
+if not exist "%current%\kjv.txt" (
+    echo ERROR: kjv.txt was not copied into the deploy package.
+    pause
+    exit /b 1
+)
 copy /Y "%src%\WEB_CONSOLE.md" "%current%\WEB_CONSOLE.md" >nul
 if exist "%src%\README.md" copy /Y "%src%\README.md" "%current%\README.md" >nul
 if exist "%src%\COMMANDS.md" copy /Y "%src%\COMMANDS.md" "%current%\COMMANDS.md" >nul

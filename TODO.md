@@ -1,4 +1,4 @@
-### TODO Version 0.1.11
+### TODO Version 0.1.12
 - Priority importance is least to greatest.
 - Check the `Version-*.md` file, and follow the pattern. Update the filename based on that guidance. For the foreseeable future nothing will change with the first two segments.
 - TODO formatting I use: <commands> (args)

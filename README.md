@@ -2,7 +2,7 @@
 
 Local companion control console for opaque AI companion memory packets,
 directive tracking, proof metadata, daily check-ins, KJV Bible reading plans,
-spiritual review, and project todos.
+spiritual review, project todos, chores, fitness logs, and diet inventory.
 
 ## Start
 
@@ -23,6 +23,8 @@ python Companion_Web.py --host 127.0.0.1 --port 8787
 - `companion-files.json` lists local companion packet files.
 - `control_data/` stores directive, proof, and daily check-in JSON.
 - `control_data/project_todos.json` stores home, vehicle, tech, and chore project todos.
+- `control_data/chores.json` stores the Chores list.
+- `control_data/diet.json` stores diet inventory and food diary entries.
 - `control_data/reading_progress.json` stores persistent Bible chapter completion.
 - `proof_vault/` stores uploaded proof files.
 - `project_assets/` stores uploaded project files, receipts, and pictures.

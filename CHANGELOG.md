@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.1.12 - 2026-07-04
+
+### Added
+
+- Added Fitness as a main navigation category instead of a Daily Check-ins subtab.
+- Added a Chores main category with create, complete/reopen, delete, and list behavior stored in `control_data/chores.json`.
+- Added a Diet main category with Summary, Inventory, Shopping List, and Food Diary tabs.
+- Added diet inventory tracking with on-hand, par, reorder-at threshold, container quantity, container cost, diff, plus/minus one controls, and direct on-hand save.
+- Added generated diet shopping list rows, estimated shopping cart cost, and a clean copy button.
+- Added simple food diary entries and CSV import with date, food, carbs, and sugars fields.
+- Added Diet summary values for last carbs, last sugars, ketosis state, ketosis start, shopping item count, and cart cost.
+
+### Changed
+
+- Bumped the release file to `Version-0.1.12.md`.
+- Redesigned Journal so new entries use a clean blank entry box without prompt text and prior entries open into a readback panel.
+- Hardened `copyover.bat` and Linux sync validation so required `kjv.txt` packaging fails loudly if the file is missing after copy/sync.
+- Kept the web KJV reading schedule aligned with the old Java pattern while wrapping Acts at month end so days 29-31 still show a real chapter.
+- Expanded ignore/copyover exclusions for Java build outputs so `.class` and `.jar` artifacts are not treated as transfer material.
+
 ## 0.1.11 - 2026-07-04
 
 ### Added

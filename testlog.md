@@ -1,5 +1,19 @@
 # Test Log
 
+## 2026-07-04 - 0.1.12 TODO Sprint
+
+| Severity | Area | Result | Notes |
+| --- | --- | --- | --- |
+| Info | API/UI smoke | Pass | Temporary server rendered Fitness, Chores, Diet, Diet tabs, clean Journal entry controls, Journal Open buttons, Spiritual Daily Reading, and Extra Reading; posted a prompt-free Journal entry, Fitness entry, Chore create/update/delete, Diet inventory create/adjust/update, Food Diary entry, and Food CSV import; generated a shopping list with one container and $8 cost. |
+| Info | KJV schedule | Pass | Direct schedule check returned Proverbs 4, Psalms 4/34/64/94/124, and Acts 4 for 2026-07-04; end-of-month check returned Proverbs 31, Psalms 1/31/61/91/121, and wrapped Acts 3 for 2026-07-31, with all KJV text available from `kjv.txt`. |
+| Info | Static compile | Pass | `python -m py_compile Companion_Web.py Memory_Manager.py` passed. |
+| Info | Compileall | Pass | `python -m compileall -q Companion_Web.py Memory_Manager.py` passed. |
+| Info | HTML/static marker gate | Pass | Static marker check found Fitness, Chores, Diet, Diet tabs, shopping-list copy support, clean Journal readback, KJV schedule wiring, and new Chores/Diet data files; confirmed `journalPrompt` and Daily Check-ins fitness tab markers are absent. |
+| Info | JSON validation | Pass | `companion-files.json`, `control_data/*.json`, and `tracker_data/*.json` parse successfully across 11 files. |
+| Info | Copyover check | Pass | `cmd /c copyover.bat --check` detected `D:\000_Files\002_Projects\EVE\MS\Companions-1`, version `0.1.12`, required `kjv.txt`, and copied no files. |
+| Info | BUGS file | Not found | No `BUGS.md` exists in this repo during the 0.1.12 TODO sprint pass. |
+| Info | Whitespace gate | Pass | `git diff --check` reported no whitespace errors; Git only warned that edited text files will be normalized from LF to CRLF when touched. |
+
 ## 2026-07-04 - 0.1.11 TODO Sprint
 
 | Severity | Area | Result | Notes |

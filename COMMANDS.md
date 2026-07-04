@@ -78,3 +78,21 @@ Uploaded project assets are stored in:
 ```text
 project_assets/
 ```
+
+## Chores And Diet Data
+
+Chores are stored in:
+
+```text
+control_data/chores.json
+```
+
+Diet inventory and food diary entries are stored in:
+
+```text
+control_data/diet.json
+```
+
+Diet inventory tracks on-hand, par, reorder threshold, container quantity, and
+cost per container. The shopping list is calculated from inventory items at or
+below their reorder threshold.

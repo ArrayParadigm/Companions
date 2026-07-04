@@ -25,6 +25,8 @@ deploy_package/
 build/
 dist/
 *.egg-info/
+*.class
+*.jar
 *.zip
 *.7z
 *.tar

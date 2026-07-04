@@ -4,6 +4,7 @@ import base64
 import binascii
 import copy
 import json
+import math
 import mimetypes
 import os
 import re
@@ -38,6 +39,8 @@ PROOF_FILE = DATA_DIR / "proof_metadata.json"
 CHECKINS_FILE = DATA_DIR / "daily_checkins.json"
 PROJECT_TODOS_FILE = DATA_DIR / "project_todos.json"
 READING_PROGRESS_FILE = DATA_DIR / "reading_progress.json"
+CHORES_FILE = DATA_DIR / "chores.json"
+DIET_FILE = DATA_DIR / "diet.json"
 KJV_FILE = APP_DIR / "kjv.txt"
 DAILY_SCHEDULE_PLAN = "KJV Daily Schedule"
 
@@ -147,6 +150,10 @@ def ensure_data_files():
         write_json(PROJECT_TODOS_FILE, {"next_project_todo_number": 1, "todos": []})
     if not READING_PROGRESS_FILE.exists():
         write_json(READING_PROGRESS_FILE, {"completed": {}, "updated_at": ""})
+    if not CHORES_FILE.exists():
+        write_json(CHORES_FILE, {"next_chore_number": 1, "chores": []})
+    if not DIET_FILE.exists():
+        write_json(DIET_FILE, {"next_inventory_number": 1, "next_food_number": 1, "inventory": [], "food_diary": []})
 
 
 def read_json(path, fallback):
@@ -200,6 +207,16 @@ def project_todo_store():
 def reading_progress_store():
     ensure_data_files()
     return read_json(READING_PROGRESS_FILE, {"completed": {}, "updated_at": ""})
+
+
+def chore_store():
+    ensure_data_files()
+    return read_json(CHORES_FILE, {"next_chore_number": 1, "chores": []})
+
+
+def diet_store():
+    ensure_data_files()
+    return read_json(DIET_FILE, {"next_inventory_number": 1, "next_food_number": 1, "inventory": [], "food_diary": []})
 
 
 def next_id(store, counter_name, prefix):
@@ -358,15 +375,21 @@ def reading_progress_state():
     }
 
 
-def daily_reading_schedule(for_date=None):
-    target_date = for_date or datetime.now().date()
+def java_daily_reading_specs(target_date):
     day = target_date.day
     psalm_start = (day - 1) % 30 + 1
-    chapter_specs = [("Proverbs", day)]
-    chapter_specs.extend(("Psalms", psalm_start + offset * 30) for offset in range(5))
-    chapter_specs.append(("Acts", ((day - 1) % 28) + 1))
+    specs = [("Proverbs", day)]
+    specs.extend(("Psalms", psalm_start + offset * 30) for offset in range(5))
+    # The old Java app used the day of month for Acts, which leaves empty
+    # readings on days 29-31. Keep the same daily rhythm, but wrap Acts.
+    specs.append(("Acts", ((day - 1) % 28) + 1))
+    return specs
+
+
+def daily_reading_schedule(for_date=None):
+    target_date = for_date or datetime.now().date()
     readings = []
-    for book, chapter in chapter_specs:
+    for book, chapter in java_daily_reading_specs(target_date):
         label = f"{book} {chapter}"
         text = kjv_chapter_text(book, chapter)
         readings.append({
@@ -491,7 +514,7 @@ def create_journal_entry(data):
     entries = read_json(path, [])
     entry = {
         "timestamp": now_stamp().replace("T", " "),
-        "prompt": str(data.get("prompt") or "General reflection.").strip() or "General reflection.",
+        "prompt": str(data.get("prompt") or "Journal entry").strip() or "Journal entry",
         "mood": clean_int(data.get("mood"), default=5, minimum=1, maximum=10),
         "entry": str(data.get("entry") or "").strip(),
     }
@@ -519,6 +542,186 @@ def create_fitness_entry(data):
     entries.append(entry)
     write_json(path, entries)
     return entry
+
+
+def create_chore(data):
+    store = chore_store()
+    chore_id = next_id(store, "next_chore_number", "CHR")
+    chore = {
+        "id": chore_id,
+        "title": str(data.get("title") or "").strip(),
+        "status": str(data.get("status") or "open").strip() or "open",
+        "due_date": str(data.get("due_date") or "").strip(),
+        "recurrence": str(data.get("recurrence") or "").strip(),
+        "notes": str(data.get("notes") or "").strip(),
+        "created_at": now_stamp(),
+        "updated_at": now_stamp(),
+    }
+    if not chore["title"]:
+        raise ValueError("Chore title is required.")
+    store.setdefault("chores", []).append(chore)
+    write_json(CHORES_FILE, store)
+    return chore
+
+
+def update_chore(chore_id, data):
+    store = chore_store()
+    for chore in store.get("chores", []):
+        if chore.get("id", "").lower() == chore_id.lower():
+            for key in ("title", "status", "due_date", "recurrence", "notes"):
+                if key in data:
+                    chore[key] = str(data[key]).strip()
+            chore["updated_at"] = now_stamp()
+            write_json(CHORES_FILE, store)
+            return chore
+    raise ValueError(f"Chore not found: {chore_id}")
+
+
+def delete_chore(chore_id):
+    store = chore_store()
+    chores = store.get("chores", [])
+    for index, chore in enumerate(chores):
+        if chore.get("id", "").lower() == chore_id.lower():
+            removed = chores.pop(index)
+            write_json(CHORES_FILE, store)
+            return removed
+    raise ValueError(f"Chore not found: {chore_id}")
+
+
+def create_inventory_item(data):
+    store = diet_store()
+    item_id = next_id(store, "next_inventory_number", "INV")
+    on_hand = clean_float(data.get("on_hand"), default=0, minimum=0)
+    par = clean_float(data.get("par"), default=0, minimum=0)
+    item = {
+        "id": item_id,
+        "name": str(data.get("name") or "").strip(),
+        "unit_label": str(data.get("unit_label") or "unit").strip() or "unit",
+        "on_hand": on_hand,
+        "par": par,
+        "reorder_at": clean_float(data.get("reorder_at"), default=round(par / 5, 2) if par else 0, minimum=0),
+        "container_size": clean_float(data.get("container_size"), default=1, minimum=0.01),
+        "cost_per_container": clean_float(data.get("cost_per_container"), default=0, minimum=0),
+        "created_at": now_stamp(),
+        "updated_at": now_stamp(),
+    }
+    if not item["name"]:
+        raise ValueError("Inventory item name is required.")
+    store.setdefault("inventory", []).append(item)
+    write_json(DIET_FILE, store)
+    return item
+
+
+def update_inventory_item(item_id, data):
+    store = diet_store()
+    for item in store.get("inventory", []):
+        if item.get("id", "").lower() == item_id.lower():
+            for key in ("name", "unit_label"):
+                if key in data:
+                    item[key] = str(data[key]).strip()
+            for key in ("on_hand", "par", "reorder_at", "container_size", "cost_per_container"):
+                if key in data:
+                    item[key] = clean_float(data.get(key), default=0, minimum=0)
+            if item.get("container_size", 0) <= 0:
+                item["container_size"] = 1
+            item["updated_at"] = now_stamp()
+            write_json(DIET_FILE, store)
+            return item
+    raise ValueError(f"Inventory item not found: {item_id}")
+
+
+def adjust_inventory_item(item_id, amount):
+    store = diet_store()
+    for item in store.get("inventory", []):
+        if item.get("id", "").lower() == item_id.lower():
+            item["on_hand"] = max(0, clean_float(item.get("on_hand"), default=0) + amount)
+            item["updated_at"] = now_stamp()
+            write_json(DIET_FILE, store)
+            return item
+    raise ValueError(f"Inventory item not found: {item_id}")
+
+
+def create_food_entry(data):
+    store = diet_store()
+    food_id = next_id(store, "next_food_number", "FOOD")
+    entry = {
+        "id": food_id,
+        "date": str(data.get("date") or datetime.now().strftime("%Y-%m-%d")).strip(),
+        "food": str(data.get("food") or "").strip(),
+        "carbs": clean_bool(data.get("carbs")),
+        "sugars": clean_bool(data.get("sugars")),
+        "created_at": now_stamp(),
+    }
+    if not entry["food"]:
+        raise ValueError("Food entry text is required.")
+    store.setdefault("food_diary", []).append(entry)
+    write_json(DIET_FILE, store)
+    return entry
+
+
+def parse_food_csv(text):
+    entries = []
+    for raw_line in str(text or "").splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        parts = [part.strip() for part in line.split(",")]
+        entry = {
+            "date": parts[0] if len(parts) > 1 else datetime.now().strftime("%Y-%m-%d"),
+            "food": parts[1] if len(parts) > 1 else parts[0],
+            "carbs": parse_bool_text(parts[2]) if len(parts) > 2 else False,
+            "sugars": parse_bool_text(parts[3]) if len(parts) > 3 else False,
+        }
+        entries.append(entry)
+    return entries
+
+
+def shopping_item_for_inventory(item):
+    on_hand = clean_float(item.get("on_hand"), default=0)
+    par = clean_float(item.get("par"), default=0)
+    reorder_at = clean_float(item.get("reorder_at"), default=round(par / 5, 2) if par else 0)
+    container_size = max(clean_float(item.get("container_size"), default=1), 0.01)
+    cost = clean_float(item.get("cost_per_container"), default=0)
+    needed_units = max(0, par - on_hand) if on_hand <= reorder_at else 0
+    containers = math.ceil(needed_units / container_size) if needed_units else 0
+    return {
+        "id": item.get("id", ""),
+        "name": item.get("name", ""),
+        "unit_label": item.get("unit_label", "unit"),
+        "on_hand": on_hand,
+        "par": par,
+        "diff": round(par - on_hand, 2),
+        "needed_units": round(needed_units, 2),
+        "containers": containers,
+        "cost": round(containers * cost, 2),
+    }
+
+
+def diet_state():
+    store = diet_store()
+    inventory = store.get("inventory", [])
+    food_diary = store.get("food_diary", [])
+    shopping = [item for item in (shopping_item_for_inventory(item) for item in inventory) if item["containers"] > 0]
+    latest_carbs = next((entry.get("date") for entry in reversed(food_diary) if entry.get("carbs")), "")
+    latest_sugars = next((entry.get("date") for entry in reversed(food_diary) if entry.get("sugars")), "")
+    ketosis_start = ""
+    for entry in reversed(food_diary):
+        if entry.get("carbs") or entry.get("sugars"):
+            break
+        ketosis_start = entry.get("date", ketosis_start)
+    return {
+        "inventory": inventory,
+        "food_diary": food_diary[-50:],
+        "shopping_list": shopping,
+        "summary": {
+            "last_carbs_date": latest_carbs,
+            "last_sugars_date": latest_sugars,
+            "ketosis": bool(food_diary) and not latest_carbs and not latest_sugars,
+            "ketosis_start_date": ketosis_start,
+            "shopping_item_count": sum(item["containers"] for item in shopping),
+            "shopping_cart_cost": round(sum(item["cost"] for item in shopping), 2),
+        },
+    }
 
 
 def normalize_project_category(value):
@@ -1362,6 +1565,8 @@ def app_state():
         "bible_books": bible_chapter_index(),
         "daily_reading_schedule": daily_schedule,
         "projects": project_state(),
+        "chores": chore_store().get("chores", []),
+        "diet": diet_state(),
     }
 
 
@@ -1522,6 +1727,8 @@ INDEX_HTML = r"""<!doctype html>
     .tracker-view.active { display: block; }
     .tab-view { display: none; }
     .tab-view.active { display: block; }
+    .diet-view { display: none; }
+    .diet-view.active { display: block; }
     .detail-box {
       border: 1px solid var(--line);
       border-radius: 6px;
@@ -1609,8 +1816,11 @@ INDEX_HTML = r"""<!doctype html>
       <button data-tab="directives" style="display:none;">Directive Ledger</button>
       <button data-tab="proof" style="display:none;">Proof Vault</button>
       <button data-tab="trackers">Daily Check-ins</button>
+      <button data-tab="fitness">Fitness</button>
       <button data-tab="spiritual">Spiritual</button>
       <button data-tab="projects">Projects</button>
+      <button data-tab="chores">Chores</button>
+      <button data-tab="diet">Diet</button>
       <button data-tab="council" style="display:none;">Council Mode</button>
     </nav>
     <section id="dashboard" class="active">
@@ -1797,7 +2007,6 @@ INDEX_HTML = r"""<!doctype html>
             <button class="active" data-tracker="summary">Summary</button>
             <button data-tracker="checkins">Check-In</button>
             <button data-tracker="journal">Journal</button>
-            <button data-tracker="fitness">Fitness</button>
           </div>
           <div class="tracker-view active" data-tracker-view="summary">
             <div id="trackerSummary"></div>
@@ -1868,40 +2077,46 @@ INDEX_HTML = r"""<!doctype html>
           </div>
           <div class="tracker-view" data-tracker-view="journal">
             <h2>Journal</h2>
-            <label>Prompt</label>
-            <input id="journalPrompt" value="General reflection.">
             <label>Mood</label>
             <input id="journalMood" type="number" min="1" max="10" value="5">
             <label>Entry</label>
             <textarea id="journalEntry"></textarea>
             <button class="inline primary" onclick="saveJournalEntry()">Save Journal Entry</button>
+            <div id="journalOpenPane" class="detail-box"></div>
             <div id="journalList"></div>
           </div>
-          <div class="tracker-view" data-tracker-view="fitness">
-            <h2>Fitness</h2>
-            <div class="field-grid">
-              <div>
-                <label>Session type</label>
-                <input id="fitnessSessionType" value="Fitness">
-              </div>
-              <div>
-                <label>Exercises</label>
-                <input id="fitnessExercises" placeholder="Forward Fold, Walk, Strength">
-              </div>
-              <div>
-                <label>Minutes</label>
-                <input id="fitnessMinutes" type="number" min="0" value="0">
-              </div>
-              <div>
-                <label>Progress</label>
-                <input id="fitnessProgress">
-              </div>
+        </div>
+      </div>
+    </section>
+    <section id="fitness">
+      <div class="grid">
+        <div class="panel">
+          <h2>Fitness</h2>
+          <div class="field-grid">
+            <div>
+              <label>Session type</label>
+              <input id="fitnessSessionType" value="Fitness">
             </div>
-            <label>Notes</label>
-            <textarea id="fitnessNotes"></textarea>
-            <button class="inline primary" onclick="saveFitnessEntry()">Save Fitness Entry</button>
-            <div id="fitnessList"></div>
+            <div>
+              <label>Exercises</label>
+              <input id="fitnessExercises" placeholder="Forward Fold, Walk, Strength">
+            </div>
+            <div>
+              <label>Minutes</label>
+              <input id="fitnessMinutes" type="number" min="0" value="0">
+            </div>
+            <div>
+              <label>Progress</label>
+              <input id="fitnessProgress">
+            </div>
           </div>
+          <label>Notes</label>
+          <textarea id="fitnessNotes"></textarea>
+          <button class="inline primary" onclick="saveFitnessEntry()">Save Fitness Entry</button>
+        </div>
+        <div class="panel">
+          <h2>Fitness Log</h2>
+          <div id="fitnessList"></div>
         </div>
       </div>
     </section>
@@ -2019,6 +2234,82 @@ INDEX_HTML = r"""<!doctype html>
         </div>
       </div>
     </section>
+    <section id="chores">
+      <div class="grid">
+        <div class="panel">
+          <h2>Chores</h2>
+          <label>Chore</label>
+          <input id="choreTitle">
+          <div class="row">
+            <div>
+              <label>Due date</label>
+              <input id="choreDueDate" type="date">
+            </div>
+            <div>
+              <label>Recurrence</label>
+              <input id="choreRecurrence" placeholder="daily, weekly, monthly">
+            </div>
+          </div>
+          <label>Notes</label>
+          <textarea id="choreNotes"></textarea>
+          <button class="inline primary" onclick="createChore()">Add Chore</button>
+        </div>
+        <div class="panel">
+          <h2>Chore List</h2>
+          <div id="choreList"></div>
+        </div>
+      </div>
+    </section>
+    <section id="diet">
+      <div class="grid">
+        <div class="panel full">
+          <h2>Diet</h2>
+          <div class="tab-row" id="dietTabs">
+            <button class="active" data-diet="summary">Summary</button>
+            <button data-diet="inventory">Inventory</button>
+            <button data-diet="shopping">Shopping List</button>
+            <button data-diet="food">Food Diary</button>
+          </div>
+        </div>
+        <div class="panel full diet-view active" data-diet-view="summary">
+          <h2>Summary</h2>
+          <div id="dietSummary"></div>
+        </div>
+        <div class="panel full diet-view" data-diet-view="inventory">
+          <h2>Inventory</h2>
+          <div class="field-grid">
+            <div><label>Item</label><input id="dietItemName"></div>
+            <div><label>Unit</label><input id="dietItemUnit" placeholder="lb, egg, can"></div>
+            <div><label>On-hand</label><input id="dietItemOnHand" type="number" min="0" step="0.01" value="0"></div>
+            <div><label>Par</label><input id="dietItemPar" type="number" min="0" step="0.01" value="0"></div>
+            <div><label>Reorder at</label><input id="dietItemReorder" type="number" min="0" step="0.01" value="0"></div>
+            <div><label>Container quantity</label><input id="dietItemContainerSize" type="number" min="0.01" step="0.01" value="1"></div>
+            <div><label>Cost per container</label><input id="dietItemCost" type="number" min="0" step="0.01" value="0"></div>
+          </div>
+          <button class="inline primary" onclick="createDietInventoryItem()">Add Item</button>
+          <div id="dietInventoryList"></div>
+        </div>
+        <div class="panel full diet-view" data-diet-view="shopping">
+          <h2>Shopping List</h2>
+          <button class="inline primary" onclick="copyShoppingList()">Copy Shopping List</button>
+          <div id="dietShoppingList"></div>
+        </div>
+        <div class="panel full diet-view" data-diet-view="food">
+          <h2>Food Diary</h2>
+          <div class="field-grid">
+            <div><label>Date</label><input id="foodDate" type="date"></div>
+            <div><label>Food</label><input id="foodText"></div>
+            <label><input id="foodCarbs" type="checkbox" style="width:auto;"> Carbs</label>
+            <label><input id="foodSugars" type="checkbox" style="width:auto;"> Sugars</label>
+          </div>
+          <button class="inline primary" onclick="createFoodEntry()">Add Food</button>
+          <label>CSV input</label>
+          <textarea id="foodCsv" placeholder="YYYY-MM-DD, food, carbs yes/no, sugars yes/no"></textarea>
+          <button class="inline" onclick="importFoodCsv()">Import CSV</button>
+          <div id="foodDiaryList"></div>
+        </div>
+      </div>
+    </section>
     <section id="council">
       <div class="panel">
         <h2>Companion</h2>
@@ -2043,6 +2334,7 @@ INDEX_HTML = r"""<!doctype html>
     let selectedPrayerCategory = 'gratitude';
     let selectedProjectCategory = 'home';
     let selectedProjectTodoId = null;
+    let selectedDietTab = 'summary';
 
     document.querySelectorAll('nav button').forEach(button => {
       button.addEventListener('click', () => {
@@ -2083,6 +2375,13 @@ INDEX_HTML = r"""<!doctype html>
       });
     });
 
+    document.querySelectorAll('#dietTabs button').forEach(button => {
+      button.addEventListener('click', () => {
+        selectedDietTab = button.dataset.diet;
+        renderDietTabs();
+      });
+    });
+
     document.querySelectorAll('#projectTabs button').forEach(button => {
       button.addEventListener('click', () => {
         selectedProjectCategory = button.dataset.project;
@@ -2112,6 +2411,7 @@ INDEX_HTML = r"""<!doctype html>
     document.getElementById('extraBookSelect').addEventListener('change', renderExtraChapterSelect);
 
     document.getElementById('checkinDate').value = new Date().toISOString().slice(0, 10);
+    document.getElementById('foodDate').value = new Date().toISOString().slice(0, 10);
 
     document.getElementById('proofForm').addEventListener('submit', async event => {
       event.preventDefault();
@@ -2153,6 +2453,8 @@ INDEX_HTML = r"""<!doctype html>
       renderTrackers();
       renderSpiritual();
       renderProjects();
+      renderChores();
+      renderDiet();
       renderCouncil();
       await loadPacket();
       renderMemoryIndex();
@@ -2348,7 +2650,7 @@ INDEX_HTML = r"""<!doctype html>
       document.getElementById('dailySummary').innerHTML = renderDailySummary();
       renderTrackerTabs();
       document.getElementById('checkinList').innerHTML = renderCheckins(state.trackers.checkins);
-      document.getElementById('journalList').innerHTML = renderSimpleList(state.trackers.journal, item => `${item.timestamp || ''} | mood ${item.mood || ''} | ${item.prompt || ''}`);
+      document.getElementById('journalList').innerHTML = renderJournalList(state.trackers.journal || []);
       document.getElementById('fitnessList').innerHTML = renderSimpleList(state.trackers.physical, item => `${item.timestamp || ''} | ${item.session_type || ''} | ${(item.exercises || []).join(', ')} | ${item.duration_minutes || 0} min | ${item.notes || ''}`);
     }
 
@@ -2626,6 +2928,180 @@ INDEX_HTML = r"""<!doctype html>
       await loadState();
     }
 
+    function renderChores() {
+      const chores = state.chores || [];
+      document.getElementById('choreList').innerHTML = chores.length
+        ? chores.slice().reverse().map(chore => `<div class="todo-row"><strong>${escapeHtml(chore.title)}</strong><br><span class="muted">${escapeHtml(chore.status || 'open')} | due ${escapeHtml(chore.due_date || '')} | ${escapeHtml(chore.recurrence || '')}</span><br><span>${escapeHtml(chore.notes || '')}</span><br><button class="inline" onclick="setChoreStatus('${escapeJs(chore.id)}','done')">Done</button> <button class="inline" onclick="setChoreStatus('${escapeJs(chore.id)}','open')">Reopen</button> <button class="inline" onclick="deleteChore('${escapeJs(chore.id)}')">Delete</button></div>`).join('')
+        : '<p class="muted">No chores yet.</p>';
+    }
+
+    async function createChore() {
+      const body = {
+        title: document.getElementById('choreTitle').value,
+        due_date: document.getElementById('choreDueDate').value,
+        recurrence: document.getElementById('choreRecurrence').value,
+        notes: document.getElementById('choreNotes').value,
+      };
+      const res = await fetch('/api/chores', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+      await handleResponse(res);
+      for (const id of ['choreTitle', 'choreDueDate', 'choreRecurrence', 'choreNotes']) {
+        document.getElementById(id).value = '';
+      }
+      await loadState();
+    }
+
+    async function setChoreStatus(choreId, status) {
+      const res = await fetch(`/api/chores/${encodeURIComponent(choreId)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status })
+      });
+      await handleResponse(res);
+      await loadState();
+    }
+
+    async function deleteChore(choreId) {
+      if (!confirm('Delete this chore?')) return;
+      const res = await fetch(`/api/chores/${encodeURIComponent(choreId)}`, { method: 'DELETE' });
+      await handleResponse(res);
+      await loadState();
+    }
+
+    function renderDiet() {
+      renderDietTabs();
+      renderDietSummary();
+      renderDietInventory();
+      renderDietShoppingList();
+      renderFoodDiary();
+    }
+
+    function renderDietTabs() {
+      document.querySelectorAll('#dietTabs button').forEach(button => {
+        button.classList.toggle('active', button.dataset.diet === selectedDietTab);
+      });
+      document.querySelectorAll('[data-diet-view]').forEach(view => {
+        view.classList.toggle('active', view.dataset.dietView === selectedDietTab);
+      });
+    }
+
+    function renderDietSummary() {
+      const summary = (state.diet || {}).summary || {};
+      document.getElementById('dietSummary').innerHTML = `<div class="dashboard-grid">
+        <div class="panel"><h3>Date since last carbs</h3><div class="metric">${escapeHtml(summary.last_carbs_date || 'none')}</div></div>
+        <div class="panel"><h3>Date since last sugars</h3><div class="metric">${escapeHtml(summary.last_sugars_date || 'none')}</div></div>
+        <div class="panel"><h3>Ketosis?</h3><div class="metric">${summary.ketosis ? 'Yes' : 'No'}</div><p class="muted">Since ${escapeHtml(summary.ketosis_start_date || 'unknown')}</p></div>
+        <div class="panel"><h3>Items in shopping cart</h3><div class="metric">${escapeHtml(summary.shopping_item_count || 0)}</div></div>
+        <div class="panel"><h3>Shopping cart cost</h3><div class="metric">$${escapeHtml(Number(summary.shopping_cart_cost || 0).toFixed(2))}</div></div>
+      </div>`;
+    }
+
+    function renderDietInventory() {
+      const items = ((state.diet || {}).inventory || []);
+      document.getElementById('dietInventoryList').innerHTML = items.length
+        ? `<div class="scrollbox"><table><thead><tr><th>Item</th><th>On-hand</th><th>Par</th><th>Diff</th><th>Container</th><th>Cost</th><th>Actions</th></tr></thead><tbody>${items.map(item => {
+            const diff = Number(item.par || 0) - Number(item.on_hand || 0);
+            return `<tr><td>${escapeHtml(item.name)}</td><td><input id="onhand-${escapeHtml(item.id)}" type="number" min="0" step="0.01" value="${escapeHtml(item.on_hand || 0)}"></td><td>${escapeHtml(item.par || 0)} ${escapeHtml(item.unit_label || '')}</td><td>${escapeHtml(diff.toFixed(2))}</td><td>${escapeHtml(item.container_size || 1)} ${escapeHtml(item.unit_label || '')}</td><td>$${escapeHtml(Number(item.cost_per_container || 0).toFixed(2))}</td><td><button class="inline" onclick="adjustInventory('${escapeJs(item.id)}',1)">+</button> <button class="inline" onclick="adjustInventory('${escapeJs(item.id)}',-1)">-</button> <button class="inline" onclick="saveInventoryOnHand('${escapeJs(item.id)}')">Save</button></td></tr>`;
+          }).join('')}</tbody></table></div>`
+        : '<p class="muted">No inventory items yet.</p>';
+    }
+
+    function renderDietShoppingList() {
+      const items = ((state.diet || {}).shopping_list || []);
+      document.getElementById('dietShoppingList').innerHTML = items.length
+        ? `<div class="scrollbox"><table><thead><tr><th>Item</th><th>Need</th><th>Containers</th><th>Cost</th></tr></thead><tbody>${items.map(item => `<tr><td>${escapeHtml(item.name)}</td><td>${escapeHtml(item.needed_units)} ${escapeHtml(item.unit_label)}</td><td>${escapeHtml(item.containers)}</td><td>$${escapeHtml(Number(item.cost || 0).toFixed(2))}</td></tr>`).join('')}</tbody></table></div>`
+        : '<p class="muted">Shopping list is empty.</p>';
+    }
+
+    function renderFoodDiary() {
+      const entries = ((state.diet || {}).food_diary || []);
+      document.getElementById('foodDiaryList').innerHTML = entries.length
+        ? renderSimpleList(entries.slice().reverse(), item => `${item.date || ''} | ${item.food || ''} | carbs ${item.carbs ? 'yes' : 'no'} | sugars ${item.sugars ? 'yes' : 'no'}`)
+        : '<p class="muted">No food entries yet.</p>';
+    }
+
+    async function createDietInventoryItem() {
+      const body = {
+        name: document.getElementById('dietItemName').value,
+        unit_label: document.getElementById('dietItemUnit').value,
+        on_hand: document.getElementById('dietItemOnHand').value,
+        par: document.getElementById('dietItemPar').value,
+        reorder_at: document.getElementById('dietItemReorder').value,
+        container_size: document.getElementById('dietItemContainerSize').value,
+        cost_per_container: document.getElementById('dietItemCost').value,
+      };
+      const res = await fetch('/api/diet/inventory', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+      await handleResponse(res);
+      for (const id of ['dietItemName', 'dietItemUnit']) document.getElementById(id).value = '';
+      await loadState();
+    }
+
+    async function adjustInventory(itemId, amount) {
+      const res = await fetch(`/api/diet/inventory/${encodeURIComponent(itemId)}/adjust`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ amount })
+      });
+      await handleResponse(res);
+      await loadState();
+    }
+
+    async function saveInventoryOnHand(itemId) {
+      const res = await fetch(`/api/diet/inventory/${encodeURIComponent(itemId)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ on_hand: document.getElementById(`onhand-${itemId}`).value })
+      });
+      await handleResponse(res);
+      await loadState();
+    }
+
+    async function createFoodEntry() {
+      const body = {
+        date: document.getElementById('foodDate').value,
+        food: document.getElementById('foodText').value,
+        carbs: document.getElementById('foodCarbs').checked,
+        sugars: document.getElementById('foodSugars').checked,
+      };
+      const res = await fetch('/api/diet/food', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+      await handleResponse(res);
+      document.getElementById('foodText').value = '';
+      document.getElementById('foodCarbs').checked = false;
+      document.getElementById('foodSugars').checked = false;
+      await loadState();
+    }
+
+    async function importFoodCsv() {
+      const res = await fetch('/api/diet/food/import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ csv: document.getElementById('foodCsv').value })
+      });
+      await handleResponse(res);
+      document.getElementById('foodCsv').value = '';
+      await loadState();
+    }
+
+    async function copyShoppingList() {
+      const items = ((state.diet || {}).shopping_list || []);
+      const text = items.length
+        ? items.map(item => `${item.name}: ${item.containers} container(s), ${item.needed_units} ${item.unit_label}, est. $${Number(item.cost || 0).toFixed(2)}`).join('\n')
+        : 'Shopping list is empty.';
+      await navigator.clipboard.writeText(text);
+      setStatus('Shopping list copied.');
+    }
+
     async function setProjectTodoStatus(todoId, status) {
       const res = await fetch(`/api/project-todos/${encodeURIComponent(todoId)}`, {
         method: 'PATCH',
@@ -2638,7 +3114,7 @@ INDEX_HTML = r"""<!doctype html>
 
     async function saveJournalEntry() {
       const body = {
-        prompt: document.getElementById('journalPrompt').value,
+        prompt: 'Journal entry',
         mood: document.getElementById('journalMood').value,
         entry: document.getElementById('journalEntry').value,
       };
@@ -2731,6 +3207,17 @@ INDEX_HTML = r"""<!doctype html>
     function renderCheckins(items) {
       if (!items.length) return '<p class="muted">No entries.</p>';
       return '<div class="scrollbox"><table><tbody>' + items.slice().reverse().map(item => `<tr><td>${renderCheckinCard(item)}</td></tr>`).join('') + '</tbody></table></div>';
+    }
+
+    function renderJournalList(items) {
+      if (!items.length) return '<p class="muted">No entries.</p>';
+      return '<div class="scrollbox"><table><tbody>' + items.slice().reverse().map((item, index) => `<tr><td><button class="inline" onclick="openJournalEntry(${items.length - 1 - index})">Open</button> <strong>${escapeHtml(item.timestamp || '')}</strong> <span class="muted">mood ${escapeHtml(item.mood || '')}</span></td></tr>`).join('') + '</tbody></table></div>';
+    }
+
+    function openJournalEntry(index) {
+      const item = ((state.trackers || {}).journal || [])[index];
+      if (!item) return;
+      document.getElementById('journalOpenPane').innerHTML = `<h3>${escapeHtml(item.timestamp || '')}</h3><p class="muted">Mood ${escapeHtml(item.mood || '')}</p><p>${escapeHtml(item.entry || '')}</p>`;
     }
 
     function renderCheckinCard(item) {
@@ -2852,6 +3339,19 @@ class CompanionWebHandler(BaseHTTPRequestHandler):
             elif path == "/api/fitness":
                 entry = create_fitness_entry(self.read_json_body())
                 self.send_json({"message": "Saved fitness entry.", "entry": entry})
+            elif path == "/api/chores":
+                chore = create_chore(self.read_json_body())
+                self.send_json({"message": f"Created {chore['id']}.", "chore": chore})
+            elif path == "/api/diet/inventory":
+                item = create_inventory_item(self.read_json_body())
+                self.send_json({"message": f"Created {item['id']}.", "item": item})
+            elif path == "/api/diet/food":
+                entry = create_food_entry(self.read_json_body())
+                self.send_json({"message": f"Saved {entry['id']}.", "entry": entry})
+            elif path == "/api/diet/food/import":
+                data = self.read_json_body()
+                entries = [create_food_entry(entry) for entry in parse_food_csv(data.get("csv", ""))]
+                self.send_json({"message": f"Imported {len(entries)} food entrie(s).", "entries": entries})
             elif path == "/api/project-todos":
                 todo = create_project_todo(self.read_json_body())
                 self.send_json({"message": f"Created {todo['id']}.", "todo": todo})
@@ -2899,6 +3399,19 @@ class CompanionWebHandler(BaseHTTPRequestHandler):
                 todo_id = unquote(path.rsplit("/", 1)[1])
                 todo = update_project_todo(todo_id, self.read_json_body())
                 self.send_json({"message": f"Updated {todo['id']}.", "todo": todo})
+            elif path.startswith("/api/chores/"):
+                chore_id = unquote(path.rsplit("/", 1)[1])
+                chore = update_chore(chore_id, self.read_json_body())
+                self.send_json({"message": f"Updated {chore['id']}.", "chore": chore})
+            elif path.startswith("/api/diet/inventory/") and path.endswith("/adjust"):
+                item_id = unquote(path.split("/")[-2])
+                amount = clean_float(self.read_json_body().get("amount"), default=0)
+                item = adjust_inventory_item(item_id, amount)
+                self.send_json({"message": f"Adjusted {item['id']}.", "item": item})
+            elif path.startswith("/api/diet/inventory/"):
+                item_id = unquote(path.rsplit("/", 1)[1])
+                item = update_inventory_item(item_id, self.read_json_body())
+                self.send_json({"message": f"Updated {item['id']}.", "item": item})
             else:
                 self.send_error_json(404, "Not found.")
         except Exception as exc:
@@ -2912,6 +3425,10 @@ class CompanionWebHandler(BaseHTTPRequestHandler):
                 todo_id = unquote(path.rsplit("/", 1)[1])
                 todo = delete_project_todo(todo_id)
                 self.send_json({"message": f"Deleted {todo['id']}.", "todo": todo})
+            elif path.startswith("/api/chores/"):
+                chore_id = unquote(path.rsplit("/", 1)[1])
+                chore = delete_chore(chore_id)
+                self.send_json({"message": f"Deleted {chore['id']}.", "chore": chore})
             else:
                 self.send_error_json(404, "Not found.")
         except Exception as exc:
