@@ -1,0 +1,136 @@
+# Companion Control Console
+
+This is the web UI for the AI companion memory and control system.
+
+The active project root is now:
+
+```text
+D:\000_Files\002_Projects\EVE\MS\Companions
+```
+
+## Start
+
+Run:
+
+```bat
+Run Web Console.bat
+```
+
+Or directly:
+
+```powershell
+python Companion_Web.py --host 127.0.0.1 --port 8787
+```
+
+Open:
+
+```text
+http://127.0.0.1:8787
+```
+
+## Current Scope
+
+- Companion memory packets stay base64 encoded in the UI.
+- New companions can be created from the Companion Memory tab; this writes a live server memory packet and updates the live companion registry.
+- `Copy Handoff` gives a companion plain instructions plus its encoded packet.
+- `Copy Packet` gives only the raw base64 packet.
+- `Apply Commands` accepts companion memory and directive command batches.
+- The ID-only memory index exposes IDs, categories, status, weights, tags, and timestamps, but not memory content.
+- Directive Ledger stores companion-issued directives.
+- Directive commands also write a compact history memory into the issuer companion packet when the issuer is configured.
+- Proof Vault stores proof metadata and uploaded proof files under `proof_vault/`, with download links for uploaded files.
+- Tracker Imports read the existing emotional journal, productivity tracker, and physical tracker JSON files.
+- Daily Check-In stores a nested daily journal in `control_data/daily_checkins.json`.
+- Dashboard separates memory, directive, spiritual, physical, and work summaries.
+- Council Mode is a handoff workflow for gathering separate companion perspectives.
+
+## Companion Update Commands
+
+```text
+add category - memory text | weight=3 | tags=tag1,tag2
+update ID -> replacement memory text
+edit ID -> replacement memory text
+archive ID
+unarchive ID
+resave ID
+delete ID
+directive - task title | priority=3 | due=YYYY-MM-DD HH:MM | proof=true | details=task details
+```
+
+See `COMMANDS.md` for the full command reference.
+
+The older style is also accepted:
+
+```text
+add: category - memory text
+```
+
+Directive commands can be mixed with memory commands in the same batch. The selected
+companion is used as the directive issuer unless the line includes `issuer=Name`.
+
+Archive behavior:
+
+- `archive ID` moves an active memory into the packet's `archive` collection.
+- `unarchive ID` restores an archived memory with its original ID.
+- `resave ID` copies an archived or active memory back into active memories with a new ID.
+- `edit ID -> replacement text` is an alias for `update`; it archives the previous active version, then replaces the active memory content.
+- `delete ID` removes a memory from active or archive entirely.
+
+## Data Files
+
+- Companion list: `companion-files.json`
+- Directive ledger: `control_data/directives.json`
+- Proof metadata: `control_data/proof_metadata.json`
+- Daily check-ins: `control_data/daily_checkins.json`
+- Proof uploads: `proof_vault/`; file proofs can be downloaded from the Proof Vault table.
+- Memory packets: `Nyx-memories.md`, `riven-memories.md`, `Vectorium-memories.md`, `Veyra_memories.md`
+- Tracker imports: `tracker_data/journal.json`, `tracker_data/tasks.json`, `tracker_data/physical.json`
+
+The companion registry, memory packets, directive data, and proof uploads are
+live server data. The deploy package does not include them, and Linux sync
+excludes them so code deploys do not overwrite newly added website data.
+
+## Deployment Note
+
+Keep this local-only until authentication is added. A future private subdomain such as
+`companions.paradigmlabs.dev` should sit behind login and preferably VPN/tunnel access.
+
+## Windows-To-Linux Deploy Flow
+
+Run from Windows:
+
+```bat
+copyover.bat
+```
+
+Run it from the `Companions` folder. The packager includes source files, docs,
+deployment scripts, and `tracker_data/`, while preserving live server-owned
+companion packets, directive data, proof files, and daily check-ins during Linux sync.
+
+This creates:
+
+- `D:\shared\MemoryManager\Current`
+- `D:\shared\MemoryManager\Archives`
+- `D:\shared\ascended\Current\MemoryManager\Current`
+- `D:\shared\ascended\Current\MemoryManager\Archives`
+
+First-time Linux server setup:
+
+```bash
+sudo bash deploy_scripts/linux_setup_subdomain.sh
+```
+
+Repeat Linux deploy sync after copying the package contents to `/home/paradigm/memorymanager`:
+
+```bash
+sudo bash /home/paradigm/memorymanager/deploy_scripts/linux_sync_from_local.sh
+```
+
+Default subdomain:
+
+```text
+companions.paradigmlabs.dev
+```
+
+The setup script configures Apache2/systemd/certbot for the subdomain, but DNS
+must already point at the Linux server before Let's Encrypt can issue a cert.

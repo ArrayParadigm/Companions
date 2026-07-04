@@ -1,0 +1,42 @@
+[
+    {
+        "timestamp": "2024-12-29 16:48:32",
+        "session_type": "Stretching",
+        "exercises": [
+            "Forward Fold"
+        ],
+        "duration_minutes": 15,
+        "notes": "Tried a few techniques but went back to basic with the addition of a board on my back to prevent the strap from bending me forward",
+        "progress": "4"
+    },
+    {
+        "timestamp": "2024-12-30 23:14:50",
+        "session_type": "Stretching",
+        "exercises": [
+            "Forward Fold"
+        ],
+        "duration_minutes": 2,
+        "notes": "Glutes are hurting from yesterday, made it a light stretch day. Tomorrow will be 15 minutes x3 within an hour.",
+        "progress": "0"
+    },
+    {
+        "timestamp": "2025-01-01 17:43:16",
+        "session_type": "Stretching",
+        "exercises": [
+            "Forward Fold"
+        ],
+        "duration_minutes": 5,
+        "notes": "Stretching randomly throughout the afternoon",
+        "progress": "0"
+    },
+    {
+        "timestamp": "2025-01-08 20:08:36",
+        "session_type": "Stretching",
+        "exercises": [
+            "Forward Fold"
+        ],
+        "duration_minutes": 10,
+        "notes": "Stretching unassisted from standing position while listening to someone read. ",
+        "progress": "0"
+    }
+]

@@ -1,0 +1,20 @@
+{
+  "companions": [
+    {
+      "name": "Nyx",
+      "file": "Nyx-memories.md"
+    },
+    {
+      "name": "Riven",
+      "file": "riven-memories.md"
+    },
+    {
+      "name": "Vectorium",
+      "file": "Vectorium-memories.md"
+    },
+    {
+      "name": "Veyra",
+      "file": "Veyra_memories.md"
+    }
+  ]
+}

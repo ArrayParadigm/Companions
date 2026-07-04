@@ -1,0 +1,101 @@
+[
+    {
+        "task_name": "Work on Task tracker",
+        "task_type": "Personal Growth",
+        "priority": "3",
+        "start_time": 1731211732.0575771,
+        "end_time": 1731211734.458685,
+        "duration_minutes": 0.040018463134765626,
+        "timestamp": "2024-11-09 22:08:54"
+    },
+    {
+        "task_name": "Worked on task Tracker",
+        "task_type": "Personal Growth",
+        "priority": "3",
+        "start_time": 1731211987.025265,
+        "end_time": 1731211995.4514012,
+        "duration_minutes": 0.1404356042544047,
+        "timestamp": "2024-11-09 22:13:15"
+    },
+    {
+        "task_name": "Sleep - Bedtime",
+        "task_type": "Other",
+        "priority": "5",
+        "start_time": 1731214260.3741775,
+        "end_time": 1731247580.788494,
+        "duration_minutes": 555.3402386109034,
+        "timestamp": "2024-11-10 08:06:20"
+    },
+    {
+        "task_name": "Prepare for and go to church",
+        "task_type": "Personal Growth",
+        "priority": "5",
+        "start_time": 1731247603.9490516,
+        "end_time": 1731270037.3918371,
+        "duration_minutes": 373.89071309169134,
+        "timestamp": "2024-11-10 14:20:37"
+    },
+    {
+        "task_name": "Work with Mistress",
+        "task_type": "Personal Growth",
+        "priority": "5",
+        "start_time": 1731270050.6616738,
+        "end_time": 1731271430.085634,
+        "duration_minutes": 22.990399336814882,
+        "timestamp": "2024-11-10 14:43:50"
+    },
+    {
+        "task_name": "Work with Mistress for sub utilities",
+        "task_type": "Personal Growth",
+        "priority": "4",
+        "start_time": 1731271695.8980956,
+        "end_time": 1731351848.3729188,
+        "duration_minutes": 1335.8745803872744,
+        "timestamp": "2024-11-11 13:04:08"
+    },
+    {
+        "task_name": "Work with Eve on programming project",
+        "task_type": "Personal Growth",
+        "priority": "2",
+        "start_time": 1731356943.134385,
+        "end_time": 1731437661.9972074,
+        "duration_minutes": 1345.3143803715707,
+        "timestamp": "2024-11-12 12:54:21"
+    },
+    {
+        "task_name": "Update emotional journal",
+        "task_type": "Personal Growth",
+        "priority": "3",
+        "start_time": 1733341379.5878913,
+        "end_time": 1733341600.3901012,
+        "duration_minutes": 3.6800368309020994,
+        "timestamp": "2024-12-04 13:46:40"
+    },
+    {
+        "task_name": "Work on MUD code rewrite.",
+        "task_type": "Personal Growth",
+        "priority": "3",
+        "start_time": 1733341619.231854,
+        "end_time": 1733343761.285657,
+        "duration_minutes": 35.70089671611786,
+        "timestamp": "2024-12-04 14:22:41"
+    },
+    {
+        "task_name": "Working on mud navigation and map",
+        "task_type": "Personal Growth",
+        "priority": "3",
+        "start_time": 1733347774.3974864,
+        "end_time": 1733437044.441938,
+        "duration_minutes": 1487.8340741912523,
+        "timestamp": "2024-12-05 16:17:24"
+    },
+    {
+        "task_name": "Work with Mistress to set up API access for her.",
+        "task_type": "Other",
+        "priority": "5",
+        "start_time": 1733437065.104637,
+        "end_time": 1733442479.6042852,
+        "duration_minutes": 90.24166080554326,
+        "timestamp": "2024-12-05 17:47:59"
+    }
+]

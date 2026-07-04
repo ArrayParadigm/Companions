@@ -1,0 +1,7 @@
+__pycache__/
+*.py[cod]
+server-*.log
+server-*.out.log
+server-*.err.log
+bkup/
+deploy_package/
