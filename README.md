@@ -2,8 +2,9 @@
 
 Local companion control console for opaque AI companion memory packets,
 directive tracking, proof metadata, daily check-ins, KJV Bible reading plans,
-spiritual review, project todos, chores, fitness logs, diet inventory, and
-local user profiles.
+spiritual review, project todos, chores, fitness command center, diet
+inventory, local password login, approved user profiles, and Array-only admin
+controls.
 
 ## Start
 
@@ -24,17 +25,21 @@ python Companion_Web.py --host 127.0.0.1 --port 8787
 - `companion-files.json` lists local companion packet files.
 - `control_data/users.json` stores local profile records. `Array` is the owner
   profile with companion access.
+- `control_data/settings.json` stores admin-controlled console settings such as
+  the session timeout timer.
 - `control_data/` stores directive, proof, and daily check-in JSON.
 - `control_data/users/<profile>/` stores non-owner profile check-ins, journal,
   fitness, reading progress, projects, chores, and diet data.
 - `control_data/project_todos.json` stores home, vehicle, tech, and chore project todos.
 - `control_data/chores.json` stores the Chores list.
 - `control_data/diet.json` stores diet inventory and food diary entries.
+- `control_data/fitness.json` stores the Recruit Rebuild Command Center.
 - `control_data/reading_progress.json` stores persistent Bible chapter completion.
 - `proof_vault/` stores uploaded proof files.
 - `project_assets/` stores uploaded project files, receipts, and pictures.
 - `tracker_data/` stores journal, task, and fitness tracker JSON used by the dashboard and entry forms.
 - `kjv.txt` is the KJV source used by the Spiritual Daily Reading schedule.
+- `fitness_page_format.txt` is the retained source design artifact for Fitness.
 - `deploy_scripts/` holds Linux Apache/systemd deployment helpers.
 - `copyover.bat` packages the current console for the Windows-to-Linux handoff.
 

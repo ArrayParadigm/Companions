@@ -1,5 +1,19 @@
 # Test Log
 
+## 2026-07-04 - 0.1.14 TODO Sprint
+
+| Severity | Area | Result | Notes |
+| --- | --- | --- | --- |
+| Info | API smoke | Pass | Temporary isolated server verified Array password bootstrap, cookie login, session timeout expiry after admin timeout change, self password change requiring current password, pending user registration denial, Array approval/access toggles/password reset, non-Array 403 for denied Daily Check-ins and companion APIs, diet inventory create/adjust/delete with shopping-list removal, and profile-scoped Fitness logs/orders/challenges/body metrics/history. |
+| Info | Static compile | Pass | `python -m py_compile Companion_Web.py Memory_Manager.py` passed. |
+| Info | Compileall | Pass | `python -m compileall -q Companion_Web.py Memory_Manager.py` passed. |
+| Info | JSON validation | Pass | `companion-files.json`, `control_data/*.json`, and `tracker_data/*.json` parse successfully across 14 files. |
+| Info | Static marker gate | Pass | Static marker check found auth controls, Admin controls, timeout controls, Fitness tabs/action buttons, Diet inventory delete, and matching HTML ids for JS references; confirmed `journalPrompt`, `data-tracker="fitness"`, old `X-Profile` header injection, old `profileSelect`, and separate companion nav tabs are absent from `Companion_Web.py`. |
+| Info | Copyover check | Pass | `cmd /c copyover.bat --check` detected `D:\000_Files\002_Projects\EVE\MS\Companions-1`, version `0.1.14`, and copied no files. |
+| Info | Ignore audit | Pass | `.gitignore` already excludes pycache, backups, proof uploads, project uploads, per-profile runtime folders, and local logs including the 0.1.14 server log files. |
+| Info | BUGS file | Not found | No `BUGS.md` exists in this repo during the 0.1.14 TODO sprint pass. |
+| Info | Whitespace gate | Pass | `git diff --check` reported no whitespace errors; Git only warned that edited text files will be normalized from LF to CRLF when touched. |
+
 ## 2026-07-04 - 0.1.13 TODO Sprint
 
 | Severity | Area | Result | Notes |

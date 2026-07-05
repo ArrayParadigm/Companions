@@ -4,6 +4,18 @@
       "name": "Array",
       "display_name": "Array",
       "role": "owner",
+      "approved": true,
+      "active": true,
+      "access": {
+        "trackers": true,
+        "fitness": true,
+        "spiritual": true,
+        "projects": true,
+        "chores": true,
+        "diet": true
+      },
+      "password_hash": "",
+      "password_salt": "",
       "created_at": "",
       "updated_at": ""
     }

@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.1.14 - 2026-07-04
+
+### Added
+
+- Added local password authentication with PBKDF2-SHA256 hashes, HTTP-only session cookies, first-run Array password bootstrap, logout, session checks, and Array-controlled inactivity timeout.
+- Added Array-only Admin controls for approving/deactivating profiles, resetting profile passwords, and toggling access to Daily Check-ins, Fitness, Spiritual, Projects, Chores, and Diet.
+- Added user self-service password changes that require the current password.
+- Added a persisted Fitness Recruit Rebuild Command Center seeded from `fitness_page_format.txt`, with orders, workout plan, mobility, cardio, strength, progress notes, challenges, body metrics, and history.
+- Added `DELETE /api/diet/inventory/{id}` and a Diet inventory Delete control.
+
+### Changed
+
+- Replaced trusted profile-header access with session-backed profile access and server-side category enforcement.
+- Moved Directive Ledger, Proof Vault, and Council Mode under the Companion tab workflow.
+- Bumped the release file to `Version-0.1.14.md`.
+
 ## 0.1.13 - 2026-07-04
 
 ### Added

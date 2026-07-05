@@ -31,11 +31,13 @@ http://127.0.0.1:8787
 ## Current Scope
 
 - Companion memory packets stay base64 encoded in the UI.
-- Profiles are selected from the header. `Array` is the owner profile and is
-  the only profile that receives Companion, Directive, Proof, and Council
-  access.
-- Register creates a local profile; Profile Settings updates the active
-  profile display name.
+- Profiles use local password login. `Array` bootstraps the first password, sees
+  Admin controls near the login area, and is the only profile that receives
+  Companion, Directive, Proof, Council, and Admin access.
+- Register creates an inactive, unapproved local account. Array approves or
+  deactivates accounts, resets passwords, toggles per-category access, and
+  changes the global inactivity timeout.
+- Logged-in users can change their own password when they know the current one.
 - New companions can be created from the Companion Memory tab; this writes a live server memory packet and updates the live companion registry.
 - `Copy Handoff` gives a companion plain instructions plus its encoded packet.
 - `Copy Packet` gives only the raw base64 packet.
@@ -47,12 +49,16 @@ http://127.0.0.1:8787
 - Daily Check-ins read the existing emotional journal, productivity tracker, and fitness tracker JSON files, with summary, check-in, and journal tabs.
 - The Journal tab can add new journal entries.
 - Journal entries use a clean blank entry box and can be reopened from the previous-entry list.
-- Fitness is a main navigation category and can add new fitness entries.
+- Fitness is a main navigation category with the persisted Recruit Rebuild
+  Command Center: Summary, Today's Orders, Workout Plan, Mobility, Cardio,
+  Strength, Progress, Challenges, Body Metrics, and History.
 - Spiritual owns daily reading, extra reading, persistent Bible chapter progress, and prayer categories for gratitude, requests, repentance, service, and closeness.
 - Projects has Home Maintenance, Vehicle Maintenance, and Tech Projects tabs plus a category selector; Chores is a project category, not a tab.
 - Chores is a main navigation category with its own chore list.
 - Diet is a main navigation category with Summary, Inventory, Shopping List, and Food Diary tabs.
-- Diet inventory tracks on-hand, par, reorder thresholds, container quantity, and cost per container; the shopping list is generated from low inventory and can be copied cleanly.
+- Diet inventory tracks on-hand, par, reorder thresholds, container quantity,
+  and cost per container; items can be deleted after confirmation, and the
+  shopping list is generated from the remaining low inventory.
 - Tech projects use repo/environment/access wording instead of physical-location wording.
 - Project pages track date added, date started, due date, expenses, uploaded expense/task/work-log files, receipts, pictures, tasks, work logs, category-specific info, notes, and next steps.
 - Project pages can edit/save projects and delete them after confirmation.
@@ -62,7 +68,8 @@ http://127.0.0.1:8787
 - Dashboard reflects the active profile access. `Array` sees memory and
   directive cards; non-owner profiles only see their own check-ins, spiritual,
   fitness, projects, chores, and diet surfaces.
-- Council Mode is a handoff workflow for gathering separate companion perspectives.
+- Directive Ledger, Proof Vault, and Council Mode are companion tabs under the
+  Companion workflow.
 
 ## Companion Update Commands
 
@@ -100,6 +107,8 @@ Archive behavior:
 
 - Companion list: `companion-files.json`
 - Local profiles: `control_data/users.json`
+- Admin settings: `control_data/settings.json`
+- Fitness command center: `control_data/fitness.json`
 - Non-owner profile data: `control_data/users/<profile>/`
 - Directive ledger: `control_data/directives.json`
 - Proof metadata: `control_data/proof_metadata.json`
@@ -119,8 +128,9 @@ excludes them so code deploys do not overwrite newly added website data.
 
 ## Deployment Note
 
-Keep this local-only until authentication is added. A future private subdomain such as
-`companions.paradigmlabs.dev` should sit behind login and preferably VPN/tunnel access.
+The console now has local password authentication, but it remains a private
+tool. A future private subdomain such as `companions.paradigmlabs.dev` should
+still sit behind careful network controls.
 
 ## Windows-To-Linux Deploy Flow
 

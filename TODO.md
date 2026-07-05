@@ -1,4 +1,4 @@
-### TODO Version 0.1.13
+### TODO Version 0.1.14
 - Priority importance is least to greatest.
 - Check the `Version-*.md` file, and follow the pattern. Update the filename based on that guidance. For the foreseeable future nothing will change with the first two segments.
 - TODO formatting I use: <commands> (args)
@@ -15,6 +15,7 @@
 ## Priority 2
 
 ## Priority 3
+- New archive feature per Companion. It should remove the archived item from the packet, but it should give a tag cloud that we can use to find archived items, like "let me see the memories that have to do with X" and I can pull from the archive and copy/paste the memories in the same base64.
 
 ## Priority 4
 

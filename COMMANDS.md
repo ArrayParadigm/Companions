@@ -5,9 +5,10 @@ Command batches can be pasted into the Memory tab. One command goes on each line
 ## Profiles
 
 `Array` is the owner profile and is the only profile with Companion, Directive,
-Proof, and Council access. Other registered profiles keep their own Daily
-Check-ins, Journal, Fitness, Spiritual reading progress, Projects, Chores, and
-Diet data under:
+Proof, Council, and Admin access. Other registered profiles must log in with a
+local password, wait for Array approval, and only see the categories Array
+enables for them. Their Daily Check-ins, Journal, Fitness, Spiritual reading
+progress, Projects, Chores, and Diet data live under:
 
 ```text
 control_data/users/<profile>/
@@ -106,4 +107,15 @@ control_data/diet.json
 
 Diet inventory tracks on-hand, par, reorder threshold, container quantity, and
 cost per container. The shopping list is calculated from inventory items at or
-below their reorder threshold.
+below their reorder threshold. Inventory rows can be deleted when an item was
+entered incorrectly.
+
+## Fitness Data
+
+The Fitness tab is the Recruit Rebuild Command Center. It stores orders,
+mobility logs, cardio walks, strength logs, progress notes, challenges, body
+metrics, and history in:
+
+```text
+control_data/fitness.json
+```

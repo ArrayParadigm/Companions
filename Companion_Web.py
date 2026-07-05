@@ -4,12 +4,16 @@ import base64
 import binascii
 import contextvars
 import copy
+import hashlib
+import hmac
 import json
 import math
 import mimetypes
 import os
 import re
+import secrets
 import shutil
+import time
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -36,6 +40,7 @@ DATA_DIR = APP_DIR / "control_data"
 PROOF_DIR = APP_DIR / "proof_vault"
 PROJECT_ASSET_DIR = APP_DIR / "project_assets"
 USERS_FILE = DATA_DIR / "users.json"
+SETTINGS_FILE = DATA_DIR / "settings.json"
 DIRECTIVES_FILE = DATA_DIR / "directives.json"
 PROOF_FILE = DATA_DIR / "proof_metadata.json"
 CHECKINS_FILE = DATA_DIR / "daily_checkins.json"
@@ -43,10 +48,22 @@ PROJECT_TODOS_FILE = DATA_DIR / "project_todos.json"
 READING_PROGRESS_FILE = DATA_DIR / "reading_progress.json"
 CHORES_FILE = DATA_DIR / "chores.json"
 DIET_FILE = DATA_DIR / "diet.json"
+FITNESS_FILE = DATA_DIR / "fitness.json"
 KJV_FILE = APP_DIR / "kjv.txt"
 DAILY_SCHEDULE_PLAN = "KJV Daily Schedule"
 ARRAY_PROFILE = "Array"
 CURRENT_PROFILE = contextvars.ContextVar("current_profile", default=ARRAY_PROFILE)
+SESSION_COOKIE = "companion_session"
+PASSWORD_ITERATIONS = 260000
+SESSIONS = {}
+ACCESS_CATEGORIES = {
+    "trackers": "Daily Check-ins",
+    "fitness": "Fitness",
+    "spiritual": "Spiritual",
+    "projects": "Projects",
+    "chores": "Chores",
+    "diet": "Diet",
+}
 
 PROJECT_CATEGORIES = {
     "home": "Home Maintenance",
@@ -122,25 +139,75 @@ def profile_folder(name):
     return DATA_DIR / "users" / profile_slug(name)
 
 
+def default_access(name):
+    allowed = True if is_array_profile(name) else False
+    return {key: allowed for key in ACCESS_CATEGORIES}
+
+
 def default_profile(name, display_name=None):
     clean_name = normalize_profile_name(name)
+    owner = is_array_profile(clean_name)
     return {
         "name": clean_name,
         "display_name": str(display_name or clean_name).strip() or clean_name,
-        "role": "owner" if is_array_profile(clean_name) else "user",
+        "role": "owner" if owner else "user",
+        "approved": owner,
+        "active": owner,
+        "access": default_access(clean_name),
+        "password_hash": "",
+        "password_salt": "",
         "created_at": now_stamp(),
         "updated_at": now_stamp(),
     }
+
+
+def normalize_profile_record(profile):
+    clean_name = normalize_profile_name(profile.get("name"))
+    owner = is_array_profile(clean_name)
+    normalized = default_profile(clean_name, profile.get("display_name"))
+    normalized.update(profile)
+    normalized["name"] = clean_name
+    normalized["display_name"] = str(normalized.get("display_name") or clean_name).strip() or clean_name
+    normalized["role"] = "owner" if owner else normalized.get("role", "user")
+    normalized["approved"] = True if owner else clean_bool(normalized.get("approved"))
+    normalized["active"] = clean_bool(normalized.get("active", True))
+    access = default_access(clean_name)
+    access.update({key: clean_bool(value) for key, value in dict(normalized.get("access") or {}).items() if key in ACCESS_CATEGORIES})
+    normalized["access"] = access
+    normalized.setdefault("password_hash", "")
+    normalized.setdefault("password_salt", "")
+    normalized.setdefault("created_at", now_stamp())
+    normalized["updated_at"] = normalized.get("updated_at") or normalized.get("created_at") or now_stamp()
+    return normalized
 
 
 def user_store():
     if not USERS_FILE.exists():
         write_json(USERS_FILE, {"profiles": [default_profile(ARRAY_PROFILE)]})
     store = read_json(USERS_FILE, {"profiles": []})
-    profiles = store.setdefault("profiles", [])
+    profiles = [normalize_profile_record(profile) for profile in store.setdefault("profiles", [])]
     if not any(is_array_profile(profile.get("name")) for profile in profiles):
         profiles.insert(0, default_profile(ARRAY_PROFILE))
-        write_json(USERS_FILE, store)
+    store["profiles"] = profiles
+    write_json(USERS_FILE, store)
+    return store
+
+
+def settings_store():
+    ensure_data_files()
+    store = read_json(SETTINGS_FILE, {"session_timeout_minutes": 30})
+    timeout = clean_int(store.get("session_timeout_minutes"), default=30, minimum=1, maximum=1440)
+    store["session_timeout_minutes"] = timeout
+    if not SETTINGS_FILE.exists():
+        write_json(SETTINGS_FILE, store)
+    return store
+
+
+def update_settings(data):
+    store = settings_store()
+    if "session_timeout_minutes" in data:
+        store["session_timeout_minutes"] = clean_int(data.get("session_timeout_minutes"), default=30, minimum=1, maximum=1440)
+    write_json(SETTINGS_FILE, store)
     return store
 
 
@@ -149,9 +216,7 @@ def ensure_user_profile(name):
     store = user_store()
     for profile in store.get("profiles", []):
         if normalize_profile_name(profile.get("name")).lower() == clean_name.lower():
-            profile["name"] = normalize_profile_name(profile.get("name"))
-            profile.setdefault("display_name", profile["name"])
-            profile["role"] = "owner" if is_array_profile(profile["name"]) else profile.get("role", "user")
+            profile = normalize_profile_record(profile)
             return profile
     profile = default_profile(clean_name)
     store.setdefault("profiles", []).append(profile)
@@ -168,6 +233,9 @@ def create_user_profile(data):
     if any(normalize_profile_name(profile.get("name")).lower() == name.lower() for profile in store.get("profiles", [])):
         raise ValueError(f"Profile already exists: {name}")
     profile = default_profile(name, data.get("display_name"))
+    set_profile_password(profile, str(data.get("password") or ""))
+    profile["approved"] = False
+    profile["active"] = False
     store.setdefault("profiles", []).append(profile)
     write_json(USERS_FILE, store)
     ensure_profile_data_files(profile["name"])
@@ -187,15 +255,171 @@ def update_user_profile(name, data):
     raise ValueError(f"Profile not found: {clean_name}")
 
 
+def admin_update_user_profile(name, data):
+    clean_name = normalize_profile_name(name)
+    store = user_store()
+    for profile in store.get("profiles", []):
+        if normalize_profile_name(profile.get("name")).lower() == clean_name.lower():
+            owner = is_array_profile(profile.get("name"))
+            if "display_name" in data:
+                profile["display_name"] = str(data.get("display_name") or profile.get("name") or clean_name).strip() or clean_name
+            if not owner:
+                if "approved" in data:
+                    profile["approved"] = clean_bool(data.get("approved"))
+                if "active" in data:
+                    profile["active"] = clean_bool(data.get("active"))
+                if "access" in data:
+                    access = default_access(profile.get("name"))
+                    access.update({key: clean_bool(value) for key, value in dict(data.get("access") or {}).items() if key in ACCESS_CATEGORIES})
+                    profile["access"] = access
+            if str(data.get("new_password") or "").strip():
+                set_profile_password(profile, str(data.get("new_password") or ""))
+            profile["updated_at"] = now_stamp()
+            write_json(USERS_FILE, store)
+            return profile
+    raise ValueError(f"Profile not found: {clean_name}")
+
+
+def public_profile(profile):
+    normalized = normalize_profile_record(profile)
+    return {
+        "name": normalized.get("name", ""),
+        "display_name": normalized.get("display_name") or normalized.get("name", ""),
+        "role": normalized.get("role", "user"),
+        "approved": clean_bool(normalized.get("approved")),
+        "active": clean_bool(normalized.get("active")),
+        "access": normalized.get("access", default_access(normalized.get("name"))),
+        "has_password": bool(normalized.get("password_hash")),
+    }
+
+
+def hash_password(password, salt=None):
+    password = str(password or "")
+    if not password:
+        raise ValueError("Password is required.")
+    salt = salt or secrets.token_hex(16)
+    digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt.encode("utf-8"), PASSWORD_ITERATIONS)
+    return salt, base64.b64encode(digest).decode("ascii")
+
+
+def set_profile_password(profile, password):
+    salt, password_hash = hash_password(password)
+    profile["password_salt"] = salt
+    profile["password_hash"] = password_hash
+    profile["updated_at"] = now_stamp()
+
+
+def verify_profile_password(profile, password):
+    if not profile.get("password_hash") or not profile.get("password_salt"):
+        return False
+    try:
+        _, attempted = hash_password(password, profile.get("password_salt"))
+    except ValueError:
+        return False
+    return hmac.compare_digest(attempted, profile.get("password_hash", ""))
+
+
+def profile_by_name(name):
+    clean_name = normalize_profile_name(name)
+    for profile in user_store().get("profiles", []):
+        if normalize_profile_name(profile.get("name")).lower() == clean_name.lower():
+            return profile
+    raise ValueError(f"Profile not found: {clean_name}")
+
+
+def array_needs_bootstrap():
+    profile = profile_by_name(ARRAY_PROFILE)
+    return not bool(profile.get("password_hash"))
+
+
+def bootstrap_array_password(data):
+    if not array_needs_bootstrap():
+        raise ValueError("Array password is already set.")
+    password = str(data.get("password") or "")
+    store = user_store()
+    for profile in store.get("profiles", []):
+        if is_array_profile(profile.get("name")):
+            set_profile_password(profile, password)
+            profile["approved"] = True
+            profile["active"] = True
+            profile["access"] = default_access(ARRAY_PROFILE)
+            write_json(USERS_FILE, store)
+            return public_profile(profile)
+    raise ValueError("Array profile was not found.")
+
+
+def create_session(profile_name):
+    token = secrets.token_urlsafe(32)
+    SESSIONS[token] = {"profile": normalize_profile_name(profile_name), "last_seen": time.time()}
+    return token
+
+
+def destroy_session(token):
+    if token:
+        SESSIONS.pop(token, None)
+
+
+def session_timeout_seconds():
+    return settings_store().get("session_timeout_minutes", 30) * 60
+
+
+def session_profile(token, refresh=True):
+    if not token or token not in SESSIONS:
+        return None
+    session = SESSIONS[token]
+    if time.time() - float(session.get("last_seen", 0)) > session_timeout_seconds():
+        destroy_session(token)
+        return None
+    if refresh:
+        session["last_seen"] = time.time()
+    try:
+        profile = profile_by_name(session.get("profile"))
+        if not clean_bool(profile.get("active", True)) or not clean_bool(profile.get("approved", False)):
+            destroy_session(token)
+            return None
+        return profile
+    except ValueError:
+        destroy_session(token)
+        return None
+
+
+def login_user(data):
+    profile = profile_by_name(data.get("name"))
+    if not verify_profile_password(profile, data.get("password", "")):
+        raise ValueError("Invalid profile or password.")
+    if not clean_bool(profile.get("active", True)):
+        raise ValueError("This account is inactive.")
+    if not clean_bool(profile.get("approved", False)):
+        raise ValueError("This account is waiting for Array approval.")
+    return create_session(profile.get("name")), public_profile(profile)
+
+
+def change_own_password(profile_name, data):
+    store = user_store()
+    clean_name = normalize_profile_name(profile_name)
+    for profile in store.get("profiles", []):
+        if normalize_profile_name(profile.get("name")).lower() == clean_name.lower():
+            if not verify_profile_password(profile, data.get("current_password", "")):
+                raise ValueError("Current password is incorrect.")
+            set_profile_password(profile, str(data.get("new_password") or ""))
+            write_json(USERS_FILE, store)
+            return public_profile(profile)
+    raise ValueError(f"Profile not found: {clean_name}")
+
+
 def public_profiles():
-    return [
-        {
-            "name": profile.get("name", ""),
-            "display_name": profile.get("display_name") or profile.get("name", ""),
-            "role": "owner" if is_array_profile(profile.get("name")) else profile.get("role", "user"),
-        }
-        for profile in user_store().get("profiles", [])
-    ]
+    return [public_profile(profile) for profile in user_store().get("profiles", [])]
+
+
+def session_public_state(profile=None):
+    return {
+        "authenticated": bool(profile),
+        "profile": public_profile(profile) if profile else None,
+        "profiles": public_profiles(),
+        "settings": settings_store(),
+        "access_categories": ACCESS_CATEGORIES,
+        "bootstrap_required": array_needs_bootstrap(),
+    }
 
 
 def active_profile_name():
@@ -208,6 +432,19 @@ def active_profile():
 
 def active_has_companion_access():
     return is_array_profile(active_profile_name())
+
+
+def active_access_map():
+    profile = active_profile()
+    access = default_access(profile.get("name"))
+    access.update({key: clean_bool(value) for key, value in dict(profile.get("access") or {}).items() if key in ACCESS_CATEGORIES})
+    return access
+
+
+def active_can_access(category):
+    if is_array_profile(active_profile_name()):
+        return True
+    return clean_bool(active_access_map().get(category))
 
 
 def profile_data_file(filename, profile_name=None):
@@ -247,6 +484,7 @@ def ensure_profile_data_files(profile_name=None):
         "reading_progress.json": {"completed": {}, "updated_at": ""},
         "chores.json": {"next_chore_number": 1, "chores": []},
         "diet.json": {"next_inventory_number": 1, "next_food_number": 1, "inventory": [], "food_diary": []},
+        "fitness.json": default_fitness_store(),
     }
     for filename, fallback in files.items():
         path = folder / filename
@@ -301,6 +539,8 @@ def ensure_data_files():
     PROJECT_ASSET_DIR.mkdir(parents=True, exist_ok=True)
     if not USERS_FILE.exists():
         write_json(USERS_FILE, {"profiles": [default_profile(ARRAY_PROFILE)]})
+    if not SETTINGS_FILE.exists():
+        write_json(SETTINGS_FILE, {"session_timeout_minutes": 30})
     if not DIRECTIVES_FILE.exists():
         write_json(DIRECTIVES_FILE, {"next_directive_number": 1, "directives": []})
     if not PROOF_FILE.exists():
@@ -315,6 +555,8 @@ def ensure_data_files():
         write_json(CHORES_FILE, {"next_chore_number": 1, "chores": []})
     if not DIET_FILE.exists():
         write_json(DIET_FILE, {"next_inventory_number": 1, "next_food_number": 1, "inventory": [], "food_diary": []})
+    if not FITNESS_FILE.exists():
+        write_json(FITNESS_FILE, default_fitness_store())
 
 
 def read_json(path, fallback):
@@ -383,6 +625,78 @@ def diet_store():
     ensure_data_files()
     ensure_profile_data_files()
     return read_json(profile_data_file("diet.json"), {"next_inventory_number": 1, "next_food_number": 1, "inventory": [], "food_diary": []})
+
+
+def default_fitness_store():
+    return {
+        "phase": "Recruit Intake",
+        "status": "Recruit Rebuild",
+        "evie_note": "Dad, today is not heroic. Today is consistency. Walk, stretch, report back. No negotiating.",
+        "next_readiness_number": 1,
+        "next_order_number": 4,
+        "next_log_number": 1,
+        "next_challenge_number": 2,
+        "orders": [
+            {"id": "ORD-0001", "title": "10-minute walk", "details": "Easy pace. No running.", "status": "open", "type": "cardio", "due_date": "", "report": "", "skip_reason": ""},
+            {"id": "ORD-0002", "title": "Mobility: hamstrings + cat-cow + calf stretch", "details": "Move gently. No aggressive back extension.", "status": "open", "type": "mobility", "due_date": "", "report": "", "skip_reason": ""},
+            {"id": "ORD-0003", "title": "Small home task", "details": "One small home task. Keep it bounded.", "status": "open", "type": "discipline", "due_date": "", "report": "", "skip_reason": ""},
+        ],
+        "workout_plan": {
+            "weekly_structure": [
+                "Monday: Strength A",
+                "Tuesday: Walk + Mobility",
+                "Wednesday: Recovery / Easy Walk",
+                "Thursday: Strength B",
+                "Friday: Walk Intervals",
+                "Saturday: Chore Conditioning / Yard Work",
+                "Sunday: Rest + Stretch",
+            ],
+            "daily_minimum": ["10-minute walk", "5-minute mobility", "1 small home task"],
+            "strength_a": ["Chair squats or bodyweight squats: 2x8", "Incline pushups: 2x6", "Glute bridges: 2x10", "Dead bugs: 2x6 per side", "Easy hamstring stretch: 30 seconds per side"],
+            "cardio_base": ["Walk 15-20 minutes", "Last 3 minutes slightly faster", "No running unless conditioning earns it"],
+            "forward_fold": ["Seated hamstring stretch: 45 seconds per side", "Standing soft-knee forward hang: 30 seconds", "Calf stretch: 30 seconds per side", "Cat-cow: 6 slow reps"],
+        },
+        "exercise_library": [
+            {"name": "Dead bug", "purpose": "Core stability and lower-back protection.", "warning": "Stop if sharp back pain appears.", "progression": "Increase reps or extend legs farther.", "regression": "Move arms only or legs only."},
+            {"name": "Chair squat", "purpose": "Rebuild squat pattern safely.", "warning": "Stop for sharp knee or back pain.", "progression": "Lower the chair height.", "regression": "Use hands for support."},
+            {"name": "Incline pushup", "purpose": "Rebuild push strength.", "warning": "Stop for shoulder pain.", "progression": "Lower the incline.", "regression": "Use a higher support."},
+            {"name": "Glute bridge", "purpose": "Rebuild hips and posterior chain.", "warning": "No aggressive back arch.", "progression": "Add pauses.", "regression": "Reduce range."},
+            {"name": "Cat-cow", "purpose": "Gentle spinal motion.", "warning": "Avoid forced extension.", "progression": "Slower controlled reps.", "regression": "Smaller range."},
+        ],
+        "readiness": [],
+        "mobility": [],
+        "cardio": [],
+        "strength": [],
+        "progress_notes": [],
+        "body_metrics": [],
+        "history": [],
+        "challenges": [
+            {"id": "CHG-0001", "name": "One-Mile Trial", "type": "Army-style trial", "requirements": "Walk or walk/jog one mile and report time, breathing, legs, and back.", "status": "locked", "safety_notes": "Unlock after walking base is consistent.", "report": ""},
+        ],
+        "safety_rules": [
+            "No aggressive back bends.",
+            "No forced back extension.",
+            "No running until walking base is adequate.",
+            "Stop if sharp pain appears.",
+            "Stop if pain shoots down the leg, numbness appears, or gait changes.",
+            "Scale workouts to current conditioning.",
+        ],
+    }
+
+
+def fitness_store():
+    ensure_data_files()
+    ensure_profile_data_files()
+    store = read_json(profile_data_file("fitness.json"), default_fitness_store())
+    changed = False
+    defaults = default_fitness_store()
+    for key, value in defaults.items():
+        if key not in store:
+            store[key] = value
+            changed = True
+    if changed:
+        write_json(profile_data_file("fitness.json"), store)
+    return store
 
 
 def next_id(store, counter_name, prefix):
@@ -710,6 +1024,131 @@ def create_fitness_entry(data):
     return entry
 
 
+def fitness_summary(store=None):
+    store = store or fitness_store()
+    history = store.get("history", [])
+    open_orders = [order for order in store.get("orders", []) if order.get("status", "open") in ("open", "started", "snoozed")]
+    completed = [item for item in history if item.get("status") in ("done", "completed")]
+    last_workout = completed[-1].get("title", "") if completed else ""
+    readiness = store.get("readiness", [])
+    latest_readiness = readiness[-1] if readiness else {}
+    return {
+        "status": store.get("status", "Recruit Rebuild"),
+        "phase": store.get("phase", "Recruit Intake"),
+        "todays_directive": open_orders[0].get("title", "10-minute walk + Mobility") if open_orders else "Report and recover",
+        "streak": len(completed),
+        "pain_alert": latest_readiness.get("back_pain", "none"),
+        "energy": latest_readiness.get("energy", ""),
+        "last_workout": last_workout,
+        "next_workout": open_orders[0].get("title", "") if open_orders else "",
+        "evie_note": store.get("evie_note", ""),
+        "open_orders": len(open_orders),
+        "history_count": len(history),
+    }
+
+
+def fitness_state():
+    store = fitness_store()
+    return {**store, "summary": fitness_summary(store)}
+
+
+def write_fitness_store(store):
+    write_json(profile_data_file("fitness.json"), store)
+
+
+def create_fitness_log(kind, data):
+    allowed = {"readiness", "mobility", "cardio", "strength", "progress_notes", "body_metrics", "history"}
+    if kind not in allowed:
+        raise ValueError(f"Unknown fitness log type: {kind}")
+    store = fitness_store()
+    log_id = next_id(store, "next_log_number", "FIT")
+    entry = {"id": log_id, "kind": kind, "created_at": now_stamp(), "date": str(data.get("date") or datetime.now().strftime("%Y-%m-%d")).strip()}
+    for key, value in data.items():
+        if key not in ("id", "kind", "created_at"):
+            entry[key] = value
+    store.setdefault(kind, []).append(entry)
+    if kind in ("cardio", "strength", "mobility", "history"):
+        history_entry = {**entry, "title": str(data.get("title") or data.get("exercise") or kind).strip(), "status": data.get("status", "completed")}
+        store.setdefault("history", []).append(history_entry)
+        if kind != "history":
+            create_fitness_entry({
+                "session_type": history_entry["title"],
+                "exercises": data.get("exercise") or data.get("title") or kind,
+                "duration_minutes": data.get("duration_minutes") or data.get("walk_duration") or data.get("minutes") or 0,
+                "progress": data.get("status", "completed"),
+                "notes": data.get("notes", ""),
+            })
+    write_fitness_store(store)
+    return entry
+
+
+def update_fitness_order(order_id, data):
+    store = fitness_store()
+    for order in store.get("orders", []):
+        if order.get("id", "").lower() == order_id.lower():
+            for key in ("status", "report", "skip_reason", "due_date", "details"):
+                if key in data:
+                    order[key] = str(data.get(key) or "").strip()
+            order["updated_at"] = now_stamp()
+            if order.get("status") in ("done", "completed", "skipped", "snoozed"):
+                store.setdefault("history", []).append({
+                    "id": next_id(store, "next_log_number", "FIT"),
+                    "kind": "order",
+                    "title": order.get("title", ""),
+                    "status": order.get("status", ""),
+                    "report": order.get("report", ""),
+                    "skip_reason": order.get("skip_reason", ""),
+                    "created_at": now_stamp(),
+                    "date": datetime.now().strftime("%Y-%m-%d"),
+                })
+            write_fitness_store(store)
+            return order
+    raise ValueError(f"Fitness order not found: {order_id}")
+
+
+def create_fitness_order(data):
+    store = fitness_store()
+    order = {
+        "id": next_id(store, "next_order_number", "ORD"),
+        "title": str(data.get("title") or "").strip(),
+        "details": str(data.get("details") or "").strip(),
+        "status": str(data.get("status") or "open").strip() or "open",
+        "type": str(data.get("type") or "order").strip() or "order",
+        "due_date": str(data.get("due_date") or "").strip(),
+        "report": "",
+        "skip_reason": "",
+        "created_at": now_stamp(),
+    }
+    if not order["title"]:
+        raise ValueError("Fitness order title is required.")
+    store.setdefault("orders", []).append(order)
+    write_fitness_store(store)
+    return order
+
+
+def update_fitness_challenge(challenge_id, data):
+    store = fitness_store()
+    for challenge in store.get("challenges", []):
+        if challenge.get("id", "").lower() == challenge_id.lower():
+            for key in ("status", "report", "completion_status"):
+                if key in data:
+                    challenge[key] = str(data.get(key) or "").strip()
+            challenge["updated_at"] = now_stamp()
+            if challenge.get("status") in ("started", "completed"):
+                store.setdefault("history", []).append({
+                    "id": next_id(store, "next_log_number", "FIT"),
+                    "kind": "challenge",
+                    "title": challenge.get("name", ""),
+                    "status": challenge.get("status", ""),
+                    "report": challenge.get("report", ""),
+                    "created_at": now_stamp(),
+                    "date": datetime.now().strftime("%Y-%m-%d"),
+                })
+            write_fitness_store(store)
+            return challenge
+    raise ValueError(f"Fitness challenge not found: {challenge_id}")
+
+
 def create_chore(data):
     store = chore_store()
     chore_id = next_id(store, "next_chore_number", "CHR")
@@ -804,6 +1243,17 @@ def adjust_inventory_item(item_id, amount):
             item["updated_at"] = now_stamp()
             write_json(profile_data_file("diet.json"), store)
             return item
+    raise ValueError(f"Inventory item not found: {item_id}")
+
+
+def delete_inventory_item(item_id):
+    store = diet_store()
+    inventory = store.get("inventory", [])
+    for index, item in enumerate(inventory):
+        if item.get("id", "").lower() == item_id.lower():
+            removed = inventory.pop(index)
+            write_json(profile_data_file("diet.json"), store)
+            return removed
     raise ValueError(f"Inventory item not found: {item_id}")
 
 
@@ -1702,6 +2152,7 @@ def directive_summary(directives):
 def app_state():
     profile = active_profile()
     companion_access = active_has_companion_access()
+    access_map = active_access_map()
     companions = []
     if companion_access:
         for companion in COMPANION_FILES:
@@ -1722,16 +2173,29 @@ def app_state():
             companions.append(item)
 
     directives = directive_store().get("directives", []) if companion_access else []
-    daily_schedule = daily_reading_schedule()
-    reading_plans = current_reading_plans(daily_schedule)
-    trackers = tracker_data(reading_plans)
+    daily_schedule = daily_reading_schedule() if access_map.get("spiritual") else []
+    reading_plans = current_reading_plans(daily_schedule) if access_map.get("spiritual") else {}
+    trackers = tracker_data(reading_plans) if access_map.get("trackers") else {
+        "journal": [],
+        "tasks": [],
+        "physical": [],
+        "checkins": [],
+        "latest_checkin": None,
+        "summary": {"journal_entries": 0, "task_entries": 0, "physical_entries": 0, "checkin_entries": 0},
+        "work_categories": {},
+        "task_categories": {},
+    }
     return {
-        "profile": profile,
+        "profile": public_profile(profile),
         "profiles": public_profiles(),
+        "settings": settings_store(),
+        "access_categories": ACCESS_CATEGORIES,
+        "admin": {"profiles": public_profiles()} if companion_access else {},
         "access": {
             "companions": companion_access,
             "directives": companion_access,
             "proof": companion_access,
+            **access_map,
         },
         "companions": companions,
         "categories": list(CATEGORIES.keys()) if companion_access else [],
@@ -1740,12 +2204,13 @@ def app_state():
         "proof": proof_store().get("proof", []) if companion_access else [],
         "trackers": trackers,
         "reading_plans": reading_plans,
-        "reading_progress": reading_progress_state(),
-        "bible_books": bible_chapter_index(),
+        "reading_progress": reading_progress_state() if access_map.get("spiritual") else {"completed": {}, "summary": {}},
+        "bible_books": bible_chapter_index() if access_map.get("spiritual") else [],
         "daily_reading_schedule": daily_schedule,
-        "projects": project_state(),
-        "chores": chore_store().get("chores", []),
-        "diet": diet_state(),
+        "projects": project_state() if access_map.get("projects") else {"categories": PROJECT_CATEGORIES, "category_details": PROJECT_CATEGORY_DETAILS, "todos": [], "summary": {}},
+        "chores": chore_store().get("chores", []) if access_map.get("chores") else [],
+        "diet": diet_state() if access_map.get("diet") else {"summary": {}, "inventory": [], "shopping_list": [], "food_diary": []},
+        "fitness": fitness_state() if access_map.get("fitness") else {},
     }
 
 
@@ -1924,6 +2389,8 @@ INDEX_HTML = r"""<!doctype html>
     .tab-view.active { display: block; }
     .diet-view { display: none; }
     .diet-view.active { display: block; }
+    .fitness-view { display: none; }
+    .fitness-view.active { display: block; }
     .detail-box {
       border: 1px solid var(--line);
       border-radius: 6px;
@@ -2003,11 +2470,16 @@ INDEX_HTML = r"""<!doctype html>
   <header>
     <h1>Companion Control Console</h1>
     <div class="profile-bar">
-      <select id="profileSelect"></select>
+      <select id="loginProfileSelect"></select>
+      <input id="loginPassword" type="password" placeholder="password">
       <input id="profileRegisterName" placeholder="new profile">
+      <input id="profileRegisterPassword" type="password" placeholder="new password">
       <button class="inline" id="profileLoginButton">Log In</button>
+      <button class="inline" id="profileLogoutButton">Log Out</button>
       <button class="inline" id="profileRegisterButton">Register</button>
       <button class="inline" id="profileSettingsButton">Profile Settings</button>
+      <button class="inline" id="changePasswordButton">Change Password</button>
+      <button class="inline primary" id="adminButton" data-admin-only>Admin</button>
       <div class="status" id="status">Loading...</div>
     </div>
   </header>
@@ -2015,15 +2487,13 @@ INDEX_HTML = r"""<!doctype html>
     <nav>
       <button data-tab="dashboard" class="active">Dashboard</button>
       <button data-tab="memory" data-companion-only>Companion</button>
-      <button data-tab="directives" data-companion-only data-default-hidden style="display:none;">Directive Ledger</button>
-      <button data-tab="proof" data-companion-only data-default-hidden style="display:none;">Proof Vault</button>
-      <button data-tab="trackers">Daily Check-ins</button>
-      <button data-tab="fitness">Fitness</button>
-      <button data-tab="spiritual">Spiritual</button>
-      <button data-tab="projects">Projects</button>
-      <button data-tab="chores">Chores</button>
-      <button data-tab="diet">Diet</button>
-      <button data-tab="council" data-companion-only data-default-hidden style="display:none;">Council Mode</button>
+      <button data-tab="trackers" data-access-category="trackers">Daily Check-ins</button>
+      <button data-tab="fitness" data-access-category="fitness">Fitness</button>
+      <button data-tab="spiritual" data-access-category="spiritual">Spiritual</button>
+      <button data-tab="projects" data-access-category="projects">Projects</button>
+      <button data-tab="chores" data-access-category="chores">Chores</button>
+      <button data-tab="diet" data-access-category="diet">Diet</button>
+      <button data-tab="admin" data-admin-only>Admin</button>
     </nav>
     <section id="dashboard" class="active">
       <div class="dashboard-grid">
@@ -2062,10 +2532,10 @@ INDEX_HTML = r"""<!doctype html>
         <div class="panel full">
           <h2>Companion</h2>
           <div class="tab-row">
-            <button class="active" onclick="document.querySelector('button[data-tab=memory]').click()">Memory</button>
-            <button onclick="document.querySelector('button[data-tab=directives]').click()">Directives</button>
-            <button onclick="document.querySelector('button[data-tab=proof]').click()">Proof</button>
-            <button onclick="document.querySelector('button[data-tab=council]').click()">Council</button>
+            <button class="active" onclick="showCompanionTab('memory')">Memory</button>
+            <button onclick="showCompanionTab('directives')">Directive Ledger</button>
+            <button onclick="showCompanionTab('proof')">Proof Vault</button>
+            <button onclick="showCompanionTab('council')">Council Mode</button>
           </div>
         </div>
         <div class="panel">
@@ -2125,10 +2595,10 @@ INDEX_HTML = r"""<!doctype html>
         <div class="panel full">
           <h2>Companion</h2>
           <div class="tab-row">
-            <button onclick="document.querySelector('button[data-tab=memory]').click()">Memory</button>
-            <button class="active" onclick="document.querySelector('button[data-tab=directives]').click()">Directives</button>
-            <button onclick="document.querySelector('button[data-tab=proof]').click()">Proof</button>
-            <button onclick="document.querySelector('button[data-tab=council]').click()">Council</button>
+            <button onclick="showCompanionTab('memory')">Memory</button>
+            <button class="active" onclick="showCompanionTab('directives')">Directive Ledger</button>
+            <button onclick="showCompanionTab('proof')">Proof Vault</button>
+            <button onclick="showCompanionTab('council')">Council Mode</button>
           </div>
         </div>
         <div class="panel">
@@ -2176,9 +2646,9 @@ INDEX_HTML = r"""<!doctype html>
           <h2>Companion</h2>
           <div class="tab-row">
             <button onclick="document.querySelector('button[data-tab=memory]').click()">Memory</button>
-            <button onclick="document.querySelector('button[data-tab=directives]').click()">Directives</button>
-            <button class="active" onclick="document.querySelector('button[data-tab=proof]').click()">Proof</button>
-            <button onclick="document.querySelector('button[data-tab=council]').click()">Council</button>
+            <button onclick="showCompanionTab('directives')">Directive Ledger</button>
+            <button class="active" onclick="showCompanionTab('proof')">Proof Vault</button>
+            <button onclick="showCompanionTab('council')">Council Mode</button>
           </div>
         </div>
         <div class="panel">
@@ -2201,7 +2671,7 @@ INDEX_HTML = r"""<!doctype html>
         </div>
       </div>
     </section>
-    <section id="trackers">
+    <section id="trackers" data-access-category="trackers">
       <div class="grid">
         <div class="panel full">
           <h2>Daily Check-ins</h2>
@@ -2290,39 +2760,92 @@ INDEX_HTML = r"""<!doctype html>
         </div>
       </div>
     </section>
-    <section id="fitness">
+    <section id="fitness" data-access-category="fitness">
       <div class="grid">
-        <div class="panel">
-          <h2>Fitness</h2>
-          <div class="field-grid">
-            <div>
-              <label>Session type</label>
-              <input id="fitnessSessionType" value="Fitness">
-            </div>
-            <div>
-              <label>Exercises</label>
-              <input id="fitnessExercises" placeholder="Forward Fold, Walk, Strength">
-            </div>
-            <div>
-              <label>Minutes</label>
-              <input id="fitnessMinutes" type="number" min="0" value="0">
-            </div>
-            <div>
-              <label>Progress</label>
-              <input id="fitnessProgress">
-            </div>
+        <div class="panel full">
+          <h2>Recruit Rebuild Command Center</h2>
+          <div class="tab-row" id="fitnessTabs">
+            <button class="active" data-fitness="summary">Summary</button>
+            <button data-fitness="orders">Today's Orders</button>
+            <button data-fitness="plan">Workout Plan</button>
+            <button data-fitness="mobility">Mobility</button>
+            <button data-fitness="cardio">Cardio</button>
+            <button data-fitness="strength">Strength</button>
+            <button data-fitness="progress">Progress</button>
+            <button data-fitness="challenges">Challenges</button>
+            <button data-fitness="metrics">Body Metrics</button>
+            <button data-fitness="history">History</button>
           </div>
-          <label>Notes</label>
-          <textarea id="fitnessNotes"></textarea>
-          <button class="inline primary" onclick="saveFitnessEntry()">Save Fitness Entry</button>
+          <div id="fitnessSummary"></div>
         </div>
-        <div class="panel">
-          <h2>Fitness Log</h2>
-          <div id="fitnessList"></div>
+        <div class="panel full fitness-view" data-fitness-view="orders">
+          <h2>Today's Orders</h2>
+          <button class="inline primary" onclick="startTodayOrder()">Start Today's Order</button>
+          <button class="inline" onclick="askEvieAdjust()">Ask Evie to Adjust</button>
+          <div id="fitnessOrders"></div>
+        </div>
+        <div class="panel full fitness-view" data-fitness-view="plan">
+          <h2>Workout Plan</h2>
+          <div id="fitnessPlan"></div>
+        </div>
+        <div class="panel fitness-view" data-fitness-view="mobility">
+          <h2>Mobility</h2>
+          <div class="field-grid">
+            <div><label>Minutes</label><input id="mobilityMinutes" type="number" min="0" value="5"></div>
+            <div><label>Pain before</label><input id="mobilityPainBefore" type="number" min="0" max="10" value="0"></div>
+            <div><label>Pain after</label><input id="mobilityPainAfter" type="number" min="0" max="10" value="0"></div>
+          </div>
+          <label>Notes</label><textarea id="mobilityNotes"></textarea>
+          <button class="inline primary" onclick="logFitness('mobility')">Log Mobility</button>
+          <button class="inline" onclick="reportPainEnergy()">Report Pain/Energy</button>
+        </div>
+        <div class="panel fitness-view" data-fitness-view="cardio">
+          <h2>Cardio</h2>
+          <div class="field-grid">
+            <div><label>Minutes</label><input id="cardioMinutes" type="number" min="0" value="10"></div>
+            <div><label>Distance</label><input id="cardioDistance" type="number" min="0" step="0.01" value="0"></div>
+            <div><label>Breath 0-10</label><input id="cardioBreath" type="number" min="0" max="10" value="0"></div>
+          </div>
+          <label>Notes</label><textarea id="cardioNotes"></textarea>
+          <button class="inline primary" onclick="logFitness('cardio')">Log Walk</button>
+        </div>
+        <div class="panel fitness-view" data-fitness-view="strength">
+          <h2>Strength</h2>
+          <div class="field-grid">
+            <div><label>Exercise</label><input id="strengthExercise" value="Strength A"></div>
+            <div><label>Sets</label><input id="strengthSets" type="number" min="0" value="1"></div>
+            <div><label>Reps</label><input id="strengthReps" type="number" min="0" value="5"></div>
+          </div>
+          <label>Notes</label><textarea id="strengthNotes"></textarea>
+          <button class="inline primary" onclick="logFitness('strength')">Log Strength</button>
+        </div>
+        <div class="panel fitness-view" data-fitness-view="progress">
+          <h2>Progress</h2>
+          <label>Progress note</label><textarea id="progressNote"></textarea>
+          <button class="inline primary" onclick="logFitness('progress_notes')">Add Progress Note</button>
+          <div id="fitnessProgress"></div>
+        </div>
+        <div class="panel full fitness-view" data-fitness-view="challenges">
+          <h2>Challenges</h2>
+          <div id="fitnessChallenges"></div>
+        </div>
+        <div class="panel fitness-view" data-fitness-view="metrics">
+          <h2>Body Metrics</h2>
+          <div class="field-grid">
+            <div><label>Weight</label><input id="metricWeight" type="number" min="0" step="0.1"></div>
+            <div><label>Waist</label><input id="metricWaist" type="number" min="0" step="0.1"></div>
+            <div><label>Energy 0-10</label><input id="metricEnergy" type="number" min="0" max="10"></div>
+          </div>
+          <label>Notes</label><textarea id="metricNotes"></textarea>
+          <button class="inline primary" onclick="logFitness('body_metrics')">Save Body Metrics</button>
+        </div>
+        <div class="panel full fitness-view" data-fitness-view="history">
+          <h2>History</h2>
+          <div id="fitnessHistory"></div>
         </div>
       </div>
     </section>
-    <section id="spiritual">
+    <section id="spiritual" data-access-category="spiritual">
       <div class="grid">
         <div class="panel full">
           <h2>Spiritual</h2>
@@ -2367,7 +2890,7 @@ INDEX_HTML = r"""<!doctype html>
         </div>
       </div>
     </section>
-    <section id="projects">
+    <section id="projects" data-access-category="projects">
       <div class="grid">
         <div class="panel full">
           <h2>Projects</h2>
@@ -2436,7 +2959,7 @@ INDEX_HTML = r"""<!doctype html>
         </div>
       </div>
     </section>
-    <section id="chores">
+    <section id="chores" data-access-category="chores">
       <div class="grid">
         <div class="panel">
           <h2>Chores</h2>
@@ -2462,7 +2985,7 @@ INDEX_HTML = r"""<!doctype html>
         </div>
       </div>
     </section>
-    <section id="diet">
+    <section id="diet" data-access-category="diet">
       <div class="grid">
         <div class="panel full">
           <h2>Diet</h2>
@@ -2512,14 +3035,37 @@ INDEX_HTML = r"""<!doctype html>
         </div>
       </div>
     </section>
+    <section id="admin" data-admin-only>
+      <div class="grid">
+        <div class="panel">
+          <h2>Admin Console</h2>
+          <label>Profile</label>
+          <select id="adminProfileSelect" onchange="renderAdminProfile()"></select>
+          <label><input id="adminApproved" type="checkbox" style="width:auto;"> Approved</label>
+          <label><input id="adminActive" type="checkbox" style="width:auto;"> Active</label>
+          <div id="adminAccessList"></div>
+          <label>Reset password</label>
+          <input id="adminResetPassword" type="password" placeholder="new password">
+          <button class="inline primary" onclick="saveAdminProfile()">Save Profile Access</button>
+          <button class="inline" onclick="adminResetSelectedPassword()">Reset Password</button>
+        </div>
+        <div class="panel">
+          <h2>Session Timeout</h2>
+          <label>Timed-out timer, minutes</label>
+          <input id="sessionTimeoutMinutes" type="number" min="1" max="1440" value="30">
+          <button class="inline primary" onclick="saveSessionTimeout()">Save Timeout</button>
+          <div id="adminStatusList"></div>
+        </div>
+      </div>
+    </section>
     <section id="council" data-companion-only>
       <div class="panel">
         <h2>Companion</h2>
         <div class="tab-row">
-          <button onclick="document.querySelector('button[data-tab=memory]').click()">Memory</button>
-          <button onclick="document.querySelector('button[data-tab=directives]').click()">Directives</button>
-          <button onclick="document.querySelector('button[data-tab=proof]').click()">Proof</button>
-          <button class="active" onclick="document.querySelector('button[data-tab=council]').click()">Council</button>
+          <button onclick="showCompanionTab('memory')">Memory</button>
+          <button onclick="showCompanionTab('directives')">Directive Ledger</button>
+          <button onclick="showCompanionTab('proof')">Proof Vault</button>
+          <button class="active" onclick="showCompanionTab('council')">Council Mode</button>
         </div>
         <h2>Council Mode</h2>
         <p class="muted">Use this as the collection point: copy handoffs for each companion, ask the same question, then paste each companion's command batch back into the Memory tab for that companion. This preserves separate private stances.</p>
@@ -2529,6 +3075,7 @@ INDEX_HTML = r"""<!doctype html>
   </main>
   <script>
     let state = null;
+    let sessionInfo = null;
     let selectedCompanion = null;
     let selectedDirectiveStatus = 'issued';
     let selectedTrackerTab = 'summary';
@@ -2537,50 +3084,116 @@ INDEX_HTML = r"""<!doctype html>
     let selectedProjectCategory = 'home';
     let selectedProjectTodoId = null;
     let selectedDietTab = 'summary';
+    let selectedFitnessTab = 'summary';
 
     const nativeFetch = window.fetch.bind(window);
     function activeProfileName() {
-      return localStorage.getItem('companionConsoleProfile') || 'Array';
+      return (state && state.profile && state.profile.name) || 'Array';
     }
     function setActiveProfile(name) {
-      localStorage.setItem('companionConsoleProfile', name || 'Array');
+      return name || 'Array';
     }
     function profileQuery() {
-      return `?profile=${encodeURIComponent(activeProfileName())}`;
+      return '';
     }
     window.fetch = (resource, options = {}) => {
       const requestOptions = Object.assign({}, options);
-      const headers = new Headers(requestOptions.headers || {});
-      headers.set('X-Profile', activeProfileName());
-      requestOptions.headers = headers;
+      requestOptions.credentials = 'same-origin';
       return nativeFetch(resource, requestOptions);
     };
 
     document.getElementById('profileLoginButton').addEventListener('click', async () => {
-      setActiveProfile(document.getElementById('profileSelect').value || 'Array');
+      const name = document.getElementById('loginProfileSelect').value || 'Array';
+      const password = document.getElementById('loginPassword').value;
+      const endpoint = sessionInfo && sessionInfo.bootstrap_required && name === 'Array' ? '/api/auth/bootstrap' : '/api/auth/login';
+      const body = endpoint.endsWith('bootstrap') ? { password } : { name, password };
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+      await handleResponse(res);
+      document.getElementById('loginPassword').value = '';
       selectedCompanion = null;
       selectedProjectTodoId = null;
       await loadState();
     });
 
+    document.getElementById('profileLogoutButton').addEventListener('click', async () => {
+      const res = await fetch('/api/auth/logout', { method: 'POST' });
+      await handleResponse(res);
+      state = null;
+      await loadSession();
+    });
+
     document.getElementById('profileRegisterButton').addEventListener('click', async () => {
       const name = document.getElementById('profileRegisterName').value.trim();
-      if (!name) {
-        setStatus('Enter a profile name.');
+      const password = document.getElementById('profileRegisterPassword').value;
+      if (!name || !password) {
+        setStatus('Enter a profile name and password.');
         return;
       }
       const res = await fetch('/api/users', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name })
+        body: JSON.stringify({ name, password })
       });
-      const data = await handleResponse(res);
-      setActiveProfile(data.profile.name);
+      await handleResponse(res);
       document.getElementById('profileRegisterName').value = '';
+      document.getElementById('profileRegisterPassword').value = '';
+      await loadSession();
+    });
+
+    document.getElementById('changePasswordButton').addEventListener('click', async () => {
+      const current = prompt('Current password');
+      if (current === null) return;
+      const next = prompt('New password');
+      if (next === null) return;
+      const res = await fetch('/api/profile/password', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ current_password: current, new_password: next })
+      });
+      await handleResponse(res);
+      setStatus('Password changed.');
+    });
+
+    document.getElementById('adminButton').addEventListener('click', () => {
+      document.querySelector('button[data-tab="admin"]').click();
+    });
+
+    async function loadSession() {
+      const res = await fetch('/api/session');
+      sessionInfo = await handleResponse(res, false);
+      renderLoginControls();
+      if (sessionInfo.authenticated) {
+        await loadState();
+      } else {
+        applyLoggedOutState();
+      }
+    }
+
+    function renderLoginControls() {
+      const profiles = sessionInfo.profiles || [];
+      const select = document.getElementById('loginProfileSelect');
+      select.innerHTML = profiles.map(profile => `<option value="${escapeHtml(profile.name)}">${escapeHtml(profile.display_name || profile.name)}${profile.approved && profile.active ? '' : ' (pending)'}</option>`).join('');
+      if (sessionInfo.bootstrap_required) select.value = 'Array';
+      document.getElementById('profileLoginButton').textContent = sessionInfo.bootstrap_required ? 'Set Array Password' : 'Log In';
+      document.getElementById('profileLogoutButton').style.display = sessionInfo.authenticated ? '' : 'none';
+      document.getElementById('profileSettingsButton').style.display = sessionInfo.authenticated ? '' : 'none';
+      document.getElementById('changePasswordButton').style.display = sessionInfo.authenticated ? '' : 'none';
+    }
+
+    function applyLoggedOutState() {
+      document.querySelectorAll('nav button').forEach(button => {
+        button.style.display = button.dataset.tab === 'dashboard' ? '' : 'none';
+      });
+      document.querySelectorAll('section').forEach(section => section.classList.remove('active'));
+      document.getElementById('dashboard').classList.add('active');
       selectedCompanion = null;
       selectedProjectTodoId = null;
-      await loadState();
-    });
+      setStatus(sessionInfo.bootstrap_required ? 'Set the first Array password.' : 'Login required.');
+    }
 
     document.getElementById('profileSettingsButton').addEventListener('click', async () => {
       const current = state && state.profile ? state.profile.display_name : activeProfileName();
@@ -2603,6 +3216,15 @@ INDEX_HTML = r"""<!doctype html>
         document.getElementById(button.dataset.tab).classList.add('active');
       });
     });
+
+    function showCompanionTab(tab) {
+      const target = tab === 'memory' ? 'memory' : tab;
+      document.querySelectorAll('nav button').forEach(b => b.classList.remove('active'));
+      const companionButton = document.querySelector('button[data-tab="memory"]');
+      if (companionButton) companionButton.classList.add('active');
+      document.querySelectorAll('section').forEach(s => s.classList.remove('active'));
+      document.getElementById(target).classList.add('active');
+    }
 
     document.querySelectorAll('#directiveTabs button').forEach(button => {
       button.addEventListener('click', () => {
@@ -2638,6 +3260,13 @@ INDEX_HTML = r"""<!doctype html>
       button.addEventListener('click', () => {
         selectedDietTab = button.dataset.diet;
         renderDietTabs();
+      });
+    });
+
+    document.querySelectorAll('#fitnessTabs button').forEach(button => {
+      button.addEventListener('click', () => {
+        selectedFitnessTab = button.dataset.fitness;
+        renderFitnessTabs();
       });
     });
 
@@ -2700,6 +3329,7 @@ INDEX_HTML = r"""<!doctype html>
     async function loadState() {
       const res = await fetch('/api/state');
       state = await handleResponse(res, false);
+      sessionInfo = Object.assign({}, sessionInfo || {}, { authenticated: true, profile: state.profile, profiles: state.profiles || [], settings: state.settings || {}, access_categories: state.access_categories || {}, bootstrap_required: false });
       renderProfileControls();
       applyAccessControls();
       selectedCompanion = state.companions.length ? (selectedCompanion || state.companions[0].name) : null;
@@ -2708,10 +3338,12 @@ INDEX_HTML = r"""<!doctype html>
       renderDirectives();
       renderProof();
       renderTrackers();
+      renderFitness();
       renderSpiritual();
       renderProjects();
       renderChores();
       renderDiet();
+      renderAdmin();
       renderCouncil();
       if ((state.access || {}).companions && selectedCompanion) {
         await loadPacket();
@@ -2724,23 +3356,37 @@ INDEX_HTML = r"""<!doctype html>
     function renderProfileControls() {
       const profiles = state.profiles || [];
       const currentName = (state.profile || {}).name || activeProfileName();
-      setActiveProfile(currentName);
-      document.getElementById('profileSelect').innerHTML = profiles.map(profile => `<option value="${escapeHtml(profile.name)}">${escapeHtml(profile.display_name || profile.name)}</option>`).join('');
-      document.getElementById('profileSelect').value = currentName;
+      const select = document.getElementById('loginProfileSelect');
+      select.innerHTML = profiles.map(profile => `<option value="${escapeHtml(profile.name)}">${escapeHtml(profile.display_name || profile.name)}${profile.approved && profile.active ? '' : ' (pending)'}</option>`).join('');
+      select.value = currentName;
+      renderLoginControls();
     }
 
     function applyAccessControls() {
       const companionAccess = Boolean((state.access || {}).companions);
       document.querySelectorAll('[data-companion-only]').forEach(element => {
-        element.style.display = companionAccess && !element.dataset.defaultHidden ? '' : 'none';
+        element.style.display = companionAccess ? '' : 'none';
+      });
+      document.querySelectorAll('[data-admin-only]').forEach(element => {
+        element.style.display = companionAccess ? '' : 'none';
+      });
+      document.querySelectorAll('[data-access-category]').forEach(element => {
+        const allowed = Boolean((state.access || {})[element.dataset.accessCategory]);
+        element.style.display = allowed ? '' : 'none';
       });
       if (!companionAccess) {
         for (const tab of ['memory', 'directives', 'proof', 'council']) {
           document.querySelectorAll(`section#${tab}`).forEach(section => section.classList.remove('active'));
         }
-        if (!document.querySelector('section.active')) {
-          document.querySelector('button[data-tab="dashboard"]').click();
-        }
+      }
+      const active = document.querySelector('section.active');
+      if (active && active.style.display === 'none') {
+        document.querySelector('button[data-tab="dashboard"]').click();
+      }
+      if (!document.querySelector('section.active')) {
+        const firstAllowed = Array.from(document.querySelectorAll('nav button')).find(button => button.style.display !== 'none');
+        if (firstAllowed) firstAllowed.click();
+        else document.getElementById('dashboard').classList.add('active');
       }
     }
 
@@ -2942,7 +3588,6 @@ INDEX_HTML = r"""<!doctype html>
       renderTrackerTabs();
       document.getElementById('checkinList').innerHTML = renderCheckins(state.trackers.checkins);
       document.getElementById('journalList').innerHTML = renderJournalList(state.trackers.journal || []);
-      document.getElementById('fitnessList').innerHTML = renderSimpleList(state.trackers.physical, item => `${item.timestamp || ''} | ${item.session_type || ''} | ${(item.exercises || []).join(', ')} | ${item.duration_minutes || 0} min | ${item.notes || ''}`);
     }
 
     function renderDailySummary() {
@@ -3295,7 +3940,7 @@ INDEX_HTML = r"""<!doctype html>
       document.getElementById('dietInventoryList').innerHTML = items.length
         ? `<div class="scrollbox"><table><thead><tr><th>Item</th><th>On-hand</th><th>Par</th><th>Diff</th><th>Container</th><th>Cost</th><th>Actions</th></tr></thead><tbody>${items.map(item => {
             const diff = Number(item.par || 0) - Number(item.on_hand || 0);
-            return `<tr><td>${escapeHtml(item.name)}</td><td><input id="onhand-${escapeHtml(item.id)}" type="number" min="0" step="0.01" value="${escapeHtml(item.on_hand || 0)}"></td><td>${escapeHtml(item.par || 0)} ${escapeHtml(item.unit_label || '')}</td><td>${escapeHtml(diff.toFixed(2))}</td><td>${escapeHtml(item.container_size || 1)} ${escapeHtml(item.unit_label || '')}</td><td>$${escapeHtml(Number(item.cost_per_container || 0).toFixed(2))}</td><td><button class="inline" onclick="adjustInventory('${escapeJs(item.id)}',1)">+</button> <button class="inline" onclick="adjustInventory('${escapeJs(item.id)}',-1)">-</button> <button class="inline" onclick="saveInventoryOnHand('${escapeJs(item.id)}')">Save</button></td></tr>`;
+            return `<tr><td>${escapeHtml(item.name)}</td><td><input id="onhand-${escapeHtml(item.id)}" type="number" min="0" step="0.01" value="${escapeHtml(item.on_hand || 0)}"></td><td>${escapeHtml(item.par || 0)} ${escapeHtml(item.unit_label || '')}</td><td>${escapeHtml(diff.toFixed(2))}</td><td>${escapeHtml(item.container_size || 1)} ${escapeHtml(item.unit_label || '')}</td><td>$${escapeHtml(Number(item.cost_per_container || 0).toFixed(2))}</td><td><button class="inline" onclick="adjustInventory('${escapeJs(item.id)}',1)">+</button> <button class="inline" onclick="adjustInventory('${escapeJs(item.id)}',-1)">-</button> <button class="inline" onclick="saveInventoryOnHand('${escapeJs(item.id)}')">Save</button> <button class="inline danger" onclick="deleteInventoryItem('${escapeJs(item.id)}')">Delete</button></td></tr>`;
           }).join('')}</tbody></table></div>`
         : '<p class="muted">No inventory items yet.</p>';
     }
@@ -3350,6 +3995,13 @@ INDEX_HTML = r"""<!doctype html>
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ on_hand: document.getElementById(`onhand-${itemId}`).value })
       });
+      await handleResponse(res);
+      await loadState();
+    }
+
+    async function deleteInventoryItem(itemId) {
+      if (!confirm('Delete this inventory item?')) return;
+      const res = await fetch(`/api/diet/inventory/${encodeURIComponent(itemId)}`, { method: 'DELETE' });
       await handleResponse(res);
       await loadState();
     }
@@ -3421,11 +4073,11 @@ INDEX_HTML = r"""<!doctype html>
 
     async function saveFitnessEntry() {
       const body = {
-        session_type: document.getElementById('fitnessSessionType').value,
-        exercises: document.getElementById('fitnessExercises').value,
-        duration_minutes: document.getElementById('fitnessMinutes').value,
-        progress: document.getElementById('fitnessProgress').value,
-        notes: document.getElementById('fitnessNotes').value,
+        session_type: 'Fitness',
+        exercises: 'Manual fitness entry',
+        duration_minutes: 0,
+        progress: 'completed',
+        notes: '',
       };
       const res = await fetch('/api/fitness', {
         method: 'POST',
@@ -3433,10 +4085,119 @@ INDEX_HTML = r"""<!doctype html>
         body: JSON.stringify(body)
       });
       await handleResponse(res);
-      for (const id of ['fitnessExercises', 'fitnessProgress', 'fitnessNotes']) {
-        document.getElementById(id).value = '';
+      await loadState();
+    }
+
+    function renderFitness() {
+      renderFitnessTabs();
+      const fitness = state.fitness || {};
+      const summary = fitness.summary || {};
+      document.getElementById('fitnessSummary').innerHTML = `<div class="dashboard-grid">
+        <div class="panel"><h3>Phase</h3><div class="metric">${escapeHtml(summary.phase || 'Recruit Intake')}</div><p class="muted">${escapeHtml(summary.status || '')}</p></div>
+        <div class="panel"><h3>Today's Directive</h3><div class="metric">${escapeHtml(summary.todays_directive || '')}</div><p class="muted">${escapeHtml(summary.evie_note || '')}</p></div>
+        <div class="panel"><h3>Open Orders</h3><div class="metric">${escapeHtml(summary.open_orders || 0)}</div><p class="muted">History ${escapeHtml(summary.history_count || 0)}</p></div>
+      </div>`;
+      document.getElementById('fitnessOrders').innerHTML = (fitness.orders || []).map(order => `<div class="todo-row"><strong>${escapeHtml(order.title)}</strong> <span class="pill">${escapeHtml(order.status || 'open')}</span><p class="muted">${escapeHtml(order.details || '')}</p><button class="inline primary" onclick="updateFitnessOrder('${escapeJs(order.id)}','done')">Mark Done</button> <button class="inline" onclick="updateFitnessOrder('${escapeJs(order.id)}','snoozed')">Snooze</button> <button class="inline" onclick="rescheduleFitnessOrder('${escapeJs(order.id)}')">Reschedule</button> <button class="inline" onclick="skipFitnessOrder('${escapeJs(order.id)}')">Skip with Reason</button></div>`).join('') || '<p class="muted">No orders.</p>';
+      const plan = fitness.workout_plan || {};
+      document.getElementById('fitnessPlan').innerHTML = Object.entries(plan).map(([key, value]) => `<h3>${escapeHtml(key.replaceAll('_',' '))}</h3><ul>${[].concat(value || []).map(item => `<li>${escapeHtml(item)}</li>`).join('')}</ul>`).join('') + `<h3>Safety Rules</h3><ul>${(fitness.safety_rules || []).map(rule => `<li>${escapeHtml(rule)}</li>`).join('')}</ul>`;
+      document.getElementById('fitnessProgress').innerHTML = renderSimpleList((fitness.progress_notes || []).slice().reverse(), item => `${item.date || ''} | ${item.note || item.notes || ''}`);
+      document.getElementById('fitnessChallenges').innerHTML = (fitness.challenges || []).map(challenge => `<div class="todo-row"><strong>${escapeHtml(challenge.name)}</strong> <span class="pill">${escapeHtml(challenge.status)}</span><p class="muted">${escapeHtml(challenge.requirements || '')}</p><button class="inline primary" onclick="updateFitnessChallenge('${escapeJs(challenge.id)}','active')">Start Challenge</button> <button class="inline" onclick="updateFitnessChallenge('${escapeJs(challenge.id)}','complete')">Complete Challenge</button></div>`).join('') || '<p class="muted">No challenges.</p>';
+      document.getElementById('fitnessHistory').innerHTML = renderSimpleList((fitness.history || []).slice().reverse(), item => `${item.date || ''} | ${item.title || item.kind || ''} | ${item.status || ''}`);
+    }
+
+    function renderFitnessTabs() {
+      document.querySelectorAll('#fitnessTabs button').forEach(button => button.classList.toggle('active', button.dataset.fitness === selectedFitnessTab));
+      document.querySelectorAll('[data-fitness-view]').forEach(view => view.classList.toggle('active', view.dataset.fitnessView === selectedFitnessTab));
+      if (selectedFitnessTab === 'summary') {
+        document.querySelectorAll('[data-fitness-view]').forEach(view => view.classList.remove('active'));
       }
-      document.getElementById('fitnessMinutes').value = '0';
+    }
+
+    async function updateFitnessOrder(orderId, status, extra = {}) {
+      const res = await fetch(`/api/fitness/orders/${encodeURIComponent(orderId)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(Object.assign({ status }, extra))
+      });
+      await handleResponse(res);
+      await loadState();
+    }
+
+    async function startTodayOrder() {
+      const open = ((state.fitness || {}).orders || []).find(order => order.status === 'open') || ((state.fitness || {}).orders || [])[0];
+      if (!open) return setStatus('No order to start.');
+      await updateFitnessOrder(open.id, 'started');
+    }
+
+    async function rescheduleFitnessOrder(orderId) {
+      const due_date = prompt('Reschedule date');
+      if (due_date === null) return;
+      await updateFitnessOrder(orderId, 'open', { due_date });
+    }
+
+    async function skipFitnessOrder(orderId) {
+      const skip_reason = prompt('Skip reason');
+      if (skip_reason === null) return;
+      await updateFitnessOrder(orderId, 'skipped', { skip_reason });
+    }
+
+    async function logFitness(kind) {
+      const maps = {
+        mobility: { title: 'Mobility', minutes: 'mobilityMinutes', pain_before: 'mobilityPainBefore', pain_after: 'mobilityPainAfter', notes: 'mobilityNotes' },
+        cardio: { title: 'Walk', duration_minutes: 'cardioMinutes', distance: 'cardioDistance', breath: 'cardioBreath', notes: 'cardioNotes' },
+        strength: { title: 'Strength', exercise: 'strengthExercise', sets: 'strengthSets', reps: 'strengthReps', notes: 'strengthNotes' },
+        progress_notes: { note: 'progressNote' },
+        body_metrics: { weight: 'metricWeight', waist: 'metricWaist', energy: 'metricEnergy', notes: 'metricNotes' },
+        readiness: {},
+      };
+      const body = {};
+      for (const [key, id] of Object.entries(maps[kind] || {})) {
+        const element = document.getElementById(id);
+        body[key] = element ? element.value : id;
+      }
+      const res = await fetch(`/api/fitness/logs/${encodeURIComponent(kind)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+      await handleResponse(res);
+      await loadState();
+    }
+
+    async function reportPainEnergy() {
+      const back_pain = prompt('Back pain 0-10');
+      if (back_pain === null) return;
+      const energy = prompt('Energy 0-10');
+      if (energy === null) return;
+      const res = await fetch('/api/fitness/logs/readiness', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ back_pain, energy })
+      });
+      await handleResponse(res);
+      await loadState();
+    }
+
+    async function askEvieAdjust() {
+      const title = prompt('Adjustment request for Evie');
+      if (!title) return;
+      const res = await fetch('/api/fitness/orders', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title, details: 'Evie adjustment request', type: 'adjustment' })
+      });
+      await handleResponse(res);
+      await loadState();
+    }
+
+    async function updateFitnessChallenge(challengeId, status) {
+      const report = status === 'complete' ? (prompt('Challenge report') || '') : '';
+      const res = await fetch(`/api/fitness/challenges/${encodeURIComponent(challengeId)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status, report })
+      });
+      await handleResponse(res);
       await loadState();
     }
 
@@ -3532,6 +4293,76 @@ INDEX_HTML = r"""<!doctype html>
       return entries.map(([name, count]) => `<span class="pill">${escapeHtml(name)} ${escapeHtml(count)}</span>`).join('');
     }
 
+    function renderAdmin() {
+      if (!((state.access || {}).companions)) return;
+      const profiles = ((state.admin || {}).profiles || state.profiles || []);
+      const select = document.getElementById('adminProfileSelect');
+      select.innerHTML = profiles.map(profile => `<option value="${escapeHtml(profile.name)}">${escapeHtml(profile.display_name || profile.name)}</option>`).join('');
+      document.getElementById('sessionTimeoutMinutes').value = (state.settings || {}).session_timeout_minutes || 30;
+      document.getElementById('adminStatusList').innerHTML = profiles.map(profile => `<div class="todo-row"><strong>${escapeHtml(profile.display_name || profile.name)}</strong><br><span class="muted">${profile.approved ? 'approved' : 'pending'} | ${profile.active ? 'active' : 'inactive'}</span></div>`).join('');
+      renderAdminProfile();
+    }
+
+    function selectedAdminProfile() {
+      const name = document.getElementById('adminProfileSelect').value;
+      return (((state.admin || {}).profiles || state.profiles || [])).find(profile => profile.name === name);
+    }
+
+    function renderAdminProfile() {
+      const profile = selectedAdminProfile();
+      if (!profile) return;
+      document.getElementById('adminApproved').checked = Boolean(profile.approved);
+      document.getElementById('adminActive').checked = Boolean(profile.active);
+      const categories = state.access_categories || {};
+      document.getElementById('adminAccessList').innerHTML = Object.entries(categories).map(([key, label]) => `<label><input class="admin-access" data-access-key="${escapeHtml(key)}" type="checkbox" style="width:auto;" ${profile.access && profile.access[key] ? 'checked' : ''}> ${escapeHtml(label)}</label>`).join('');
+    }
+
+    function adminAccessBody() {
+      const access = {};
+      document.querySelectorAll('.admin-access').forEach(input => access[input.dataset.accessKey] = input.checked);
+      return {
+        approved: document.getElementById('adminApproved').checked,
+        active: document.getElementById('adminActive').checked,
+        access
+      };
+    }
+
+    async function saveAdminProfile() {
+      const profile = selectedAdminProfile();
+      if (!profile) return;
+      const res = await fetch(`/api/admin/users/${encodeURIComponent(profile.name)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(adminAccessBody())
+      });
+      await handleResponse(res);
+      await loadState();
+    }
+
+    async function adminResetSelectedPassword() {
+      const profile = selectedAdminProfile();
+      const password = document.getElementById('adminResetPassword').value;
+      if (!profile || !password) return setStatus('Enter a reset password.');
+      const res = await fetch(`/api/admin/users/${encodeURIComponent(profile.name)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(Object.assign(adminAccessBody(), { new_password: password }))
+      });
+      await handleResponse(res);
+      document.getElementById('adminResetPassword').value = '';
+      await loadState();
+    }
+
+    async function saveSessionTimeout() {
+      const res = await fetch('/api/admin/settings', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ session_timeout_minutes: document.getElementById('sessionTimeoutMinutes').value })
+      });
+      await handleResponse(res);
+      await loadState();
+    }
+
     async function handleResponse(res, showSaved = true) {
       const data = await res.json();
       if (!res.ok) {
@@ -3553,7 +4384,7 @@ INDEX_HTML = r"""<!doctype html>
       return String(value).replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[ch]));
     }
     function escapeJs(value) { return String(value).replace(/\\/g, '\\\\').replace(/'/g, "\\'"); }
-    loadState().catch(error => setStatus(error.message || 'Unable to load console data.'));
+    loadSession().catch(error => setStatus(error.message || 'Unable to load console data.'));
   </script>
 </body>
 </html>
@@ -3566,10 +4397,39 @@ class CompanionWebHandler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
         print("[%s] %s" % (self.log_date_time_string(), fmt % args))
 
-    def request_profile_name(self, parsed):
-        params = parse_qs(parsed.query)
-        requested = params.get("profile", [""])[0] or self.headers.get("X-Profile", "")
-        return normalize_profile_name(requested)
+    def cookies(self):
+        cookies = {}
+        for part in self.headers.get("Cookie", "").split(";"):
+            if "=" in part:
+                key, value = part.strip().split("=", 1)
+                cookies[key] = value
+        return cookies
+
+    def session_token(self):
+        return self.cookies().get(SESSION_COOKIE, "")
+
+    def authenticated_profile(self, refresh=True):
+        return session_profile(self.session_token(), refresh=refresh)
+
+    def set_session_cookie(self, token):
+        timeout = settings_store().get("session_timeout_minutes", 30) * 60
+        return f"{SESSION_COOKIE}={token}; Path=/; HttpOnly; SameSite=Lax; Max-Age={timeout}"
+
+    def clear_session_cookie(self):
+        return f"{SESSION_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0"
+
+    def require_authenticated(self):
+        profile = self.authenticated_profile()
+        if profile:
+            return profile
+        self.send_error_json(401, "Login required.")
+        return None
+
+    def set_active_profile_from_session(self):
+        profile = self.require_authenticated()
+        if not profile:
+            return None, None
+        return CURRENT_PROFILE.set(profile.get("name", ARRAY_PROFILE)), profile
 
     def require_companion_access(self):
         if active_has_companion_access():
@@ -3577,18 +4437,31 @@ class CompanionWebHandler(BaseHTTPRequestHandler):
         self.send_error_json(403, "Companion controls are only available to Array.")
         return False
 
+    def require_category_access(self, category):
+        if active_can_access(category):
+            return True
+        self.send_error_json(403, f"{ACCESS_CATEGORIES.get(category, category)} access is not enabled for this profile.")
+        return False
+
     def do_GET(self):
         token = None
         try:
             parsed = urlparse(self.path)
-            token = CURRENT_PROFILE.set(self.request_profile_name(parsed))
-            ensure_user_profile(active_profile_name())
             path = parsed.path
             if path == "/":
                 self.send_html(INDEX_HTML)
+            elif path == "/api/session":
+                profile = self.authenticated_profile()
+                self.send_json(session_public_state(profile))
             elif path == "/api/state":
+                token, _profile = self.set_active_profile_from_session()
+                if token is None:
+                    return
                 self.send_json(app_state())
             elif path == "/api/bible/chapter":
+                token, _profile = self.set_active_profile_from_session()
+                if token is None or not self.require_category_access("spiritual"):
+                    return
                 params = parse_qs(parsed.query)
                 book = params.get("book", [""])[0]
                 chapter = clean_int(params.get("chapter", ["0"])[0], default=0, minimum=1)
@@ -3600,13 +4473,22 @@ class CompanionWebHandler(BaseHTTPRequestHandler):
                     "text": kjv_chapter_text(book, chapter),
                 })
             elif path.startswith("/projects/"):
+                token, _profile = self.set_active_profile_from_session()
+                if token is None or not self.require_category_access("projects"):
+                    return
                 todo_id = unquote(path.rsplit("/", 1)[1])
                 self.send_html(render_project_page(todo_id, active_profile_name()))
             elif path.startswith("/api/companion/"):
+                token, _profile = self.set_active_profile_from_session()
+                if token is None:
+                    return
                 if not self.require_companion_access():
                     return
                 self.handle_companion_get(path)
             elif path.startswith("/api/proof/") and path.endswith("/download"):
+                token, _profile = self.set_active_profile_from_session()
+                if token is None:
+                    return
                 if not self.require_companion_access():
                     return
                 proof_id = unquote(path.split("/")[3])
@@ -3616,10 +4498,16 @@ class CompanionWebHandler(BaseHTTPRequestHandler):
                     return
                 self.send_file(APP_DIR / proof["path"], as_attachment=True)
             elif path.startswith("/proof_vault/"):
+                token, _profile = self.set_active_profile_from_session()
+                if token is None:
+                    return
                 if not self.require_companion_access():
                     return
                 self.send_file(APP_DIR / unquote(path.lstrip("/")))
             elif path.startswith("/project_assets/"):
+                token, _profile = self.set_active_profile_from_session()
+                if token is None or not self.require_category_access("projects"):
+                    return
                 self.send_file(APP_DIR / unquote(path.lstrip("/")))
             else:
                 self.send_error_json(404, "Not found.")
@@ -3633,90 +4521,134 @@ class CompanionWebHandler(BaseHTTPRequestHandler):
         token = None
         try:
             parsed = urlparse(self.path)
-            token = CURRENT_PROFILE.set(self.request_profile_name(parsed))
-            ensure_user_profile(active_profile_name())
             path = parsed.path
-            if path == "/api/directives":
-                if not self.require_companion_access():
-                    return
-                directive = create_directive(self.read_json_body())
-                self.send_json({"message": f"Created {directive['id']}.", "directive": directive})
-            elif path == "/api/companions":
-                if not self.require_companion_access():
-                    return
-                companion = create_companion_record(self.read_json_body())
-                self.send_json({"message": f"Created companion {companion['name']}.", "companion": companion})
-            elif path == "/api/directives/parse":
-                if not self.require_companion_access():
-                    return
-                directive = parse_directive_text(self.read_json_body())
-                self.send_json({"message": "Parsed directive draft.", "directive": directive})
-            elif path == "/api/proof":
-                if not self.require_companion_access():
-                    return
-                proof = create_text_proof(self.read_json_body())
-                self.send_json({"message": f"Created {proof['id']}.", "proof": proof})
+            if path == "/api/auth/bootstrap":
+                profile = bootstrap_array_password(self.read_json_body())
+                session_token = create_session(profile["name"])
+                self.send_json({"message": "Array password set.", **session_public_state(profile_by_name(profile["name"]))}, headers={"Set-Cookie": self.set_session_cookie(session_token)})
+            elif path == "/api/auth/login":
+                session_token, profile = login_user(self.read_json_body())
+                self.send_json({"message": f"Logged in as {profile['display_name']}.", **session_public_state(profile_by_name(profile["name"]))}, headers={"Set-Cookie": self.set_session_cookie(session_token)})
+            elif path == "/api/auth/logout":
+                destroy_session(self.session_token())
+                self.send_json({"message": "Logged out.", **session_public_state(None)}, headers={"Set-Cookie": self.clear_session_cookie()})
             elif path == "/api/users":
                 profile = create_user_profile(self.read_json_body())
-                self.send_json({"message": f"Registered {profile['display_name']}.", "profile": profile})
-            elif path == "/api/checkins":
-                checkin = create_checkin(self.read_json_body())
-                self.send_json({"message": f"Saved {checkin['id']}.", "checkin": checkin})
-            elif path == "/api/journal":
-                entry = create_journal_entry(self.read_json_body())
-                self.send_json({"message": "Saved journal entry.", "entry": entry})
-            elif path == "/api/fitness":
-                entry = create_fitness_entry(self.read_json_body())
-                self.send_json({"message": "Saved fitness entry.", "entry": entry})
-            elif path == "/api/chores":
-                chore = create_chore(self.read_json_body())
-                self.send_json({"message": f"Created {chore['id']}.", "chore": chore})
-            elif path == "/api/diet/inventory":
-                item = create_inventory_item(self.read_json_body())
-                self.send_json({"message": f"Created {item['id']}.", "item": item})
-            elif path == "/api/diet/food":
-                entry = create_food_entry(self.read_json_body())
-                self.send_json({"message": f"Saved {entry['id']}.", "entry": entry})
-            elif path == "/api/diet/food/import":
-                data = self.read_json_body()
-                entries = [create_food_entry(entry) for entry in parse_food_csv(data.get("csv", ""))]
-                self.send_json({"message": f"Imported {len(entries)} food entrie(s).", "entries": entries})
-            elif path == "/api/project-todos":
-                todo = create_project_todo(self.read_json_body())
-                self.send_json({"message": f"Created {todo['id']}.", "todo": todo})
-            elif path == "/api/reading-progress":
-                reading = mark_reading_complete(self.read_json_body())
-                self.send_json({"message": f"Marked {reading['label']} read.", "reading": reading})
-            elif path == "/api/project-assets/upload":
-                form = cgi.FieldStorage(
-                    fp=self.rfile,
-                    headers=self.headers,
-                    environ={
-                        "REQUEST_METHOD": "POST",
-                        "CONTENT_TYPE": self.headers.get("Content-Type", ""),
-                    },
-                )
-                asset = create_project_asset(form)
-                self.send_json({"message": f"Uploaded {asset['id']}.", "asset": asset})
-            elif path == "/api/proof/upload":
-                if not self.require_companion_access():
-                    return
-                form = cgi.FieldStorage(
-                    fp=self.rfile,
-                    headers=self.headers,
-                    environ={
-                        "REQUEST_METHOD": "POST",
-                        "CONTENT_TYPE": self.headers.get("Content-Type", ""),
-                    },
-                )
-                proof = create_file_proof(form)
-                self.send_json({"message": f"Uploaded {proof['id']}.", "proof": proof})
-            elif path.startswith("/api/companion/"):
-                if not self.require_companion_access():
-                    return
-                self.handle_companion_post(path)
+                self.send_json({"message": f"Registered {profile['display_name']}. Array must approve this account before login.", "profile": public_profile(profile)})
             else:
-                self.send_error_json(404, "Not found.")
+                token, _profile = self.set_active_profile_from_session()
+                if token is None:
+                    return
+
+                if path == "/api/directives":
+                    if not self.require_companion_access():
+                        return
+                    directive = create_directive(self.read_json_body())
+                    self.send_json({"message": f"Created {directive['id']}.", "directive": directive})
+                elif path == "/api/companions":
+                    if not self.require_companion_access():
+                        return
+                    companion = create_companion_record(self.read_json_body())
+                    self.send_json({"message": f"Created companion {companion['name']}.", "companion": companion})
+                elif path == "/api/directives/parse":
+                    if not self.require_companion_access():
+                        return
+                    directive = parse_directive_text(self.read_json_body())
+                    self.send_json({"message": "Parsed directive draft.", "directive": directive})
+                elif path == "/api/proof":
+                    if not self.require_companion_access():
+                        return
+                    proof = create_text_proof(self.read_json_body())
+                    self.send_json({"message": f"Created {proof['id']}.", "proof": proof})
+                elif path == "/api/checkins":
+                    if not self.require_category_access("trackers"):
+                        return
+                    checkin = create_checkin(self.read_json_body())
+                    self.send_json({"message": f"Saved {checkin['id']}.", "checkin": checkin})
+                elif path == "/api/journal":
+                    if not self.require_category_access("trackers"):
+                        return
+                    entry = create_journal_entry(self.read_json_body())
+                    self.send_json({"message": "Saved journal entry.", "entry": entry})
+                elif path == "/api/fitness":
+                    if not self.require_category_access("fitness"):
+                        return
+                    entry = create_fitness_entry(self.read_json_body())
+                    self.send_json({"message": "Saved fitness entry.", "entry": entry})
+                elif path == "/api/fitness/orders":
+                    if not self.require_category_access("fitness"):
+                        return
+                    order = create_fitness_order(self.read_json_body())
+                    self.send_json({"message": f"Created {order['id']}.", "order": order, "fitness": fitness_state()})
+                elif path.startswith("/api/fitness/logs/"):
+                    if not self.require_category_access("fitness"):
+                        return
+                    kind = unquote(path.rsplit("/", 1)[1])
+                    log = create_fitness_log(kind, self.read_json_body())
+                    self.send_json({"message": f"Logged {kind}.", "log": log, "fitness": fitness_state()})
+                elif path == "/api/chores":
+                    if not self.require_category_access("chores"):
+                        return
+                    chore = create_chore(self.read_json_body())
+                    self.send_json({"message": f"Created {chore['id']}.", "chore": chore})
+                elif path == "/api/diet/inventory":
+                    if not self.require_category_access("diet"):
+                        return
+                    item = create_inventory_item(self.read_json_body())
+                    self.send_json({"message": f"Created {item['id']}.", "item": item})
+                elif path == "/api/diet/food":
+                    if not self.require_category_access("diet"):
+                        return
+                    entry = create_food_entry(self.read_json_body())
+                    self.send_json({"message": f"Saved {entry['id']}.", "entry": entry})
+                elif path == "/api/diet/food/import":
+                    if not self.require_category_access("diet"):
+                        return
+                    data = self.read_json_body()
+                    entries = [create_food_entry(entry) for entry in parse_food_csv(data.get("csv", ""))]
+                    self.send_json({"message": f"Imported {len(entries)} food entrie(s).", "entries": entries})
+                elif path == "/api/project-todos":
+                    if not self.require_category_access("projects"):
+                        return
+                    todo = create_project_todo(self.read_json_body())
+                    self.send_json({"message": f"Created {todo['id']}.", "todo": todo})
+                elif path == "/api/reading-progress":
+                    if not self.require_category_access("spiritual"):
+                        return
+                    reading = mark_reading_complete(self.read_json_body())
+                    self.send_json({"message": f"Marked {reading['label']} read.", "reading": reading})
+                elif path == "/api/project-assets/upload":
+                    if not self.require_category_access("projects"):
+                        return
+                    form = cgi.FieldStorage(
+                        fp=self.rfile,
+                        headers=self.headers,
+                        environ={
+                            "REQUEST_METHOD": "POST",
+                            "CONTENT_TYPE": self.headers.get("Content-Type", ""),
+                        },
+                    )
+                    asset = create_project_asset(form)
+                    self.send_json({"message": f"Uploaded {asset['id']}.", "asset": asset})
+                elif path == "/api/proof/upload":
+                    if not self.require_companion_access():
+                        return
+                    form = cgi.FieldStorage(
+                        fp=self.rfile,
+                        headers=self.headers,
+                        environ={
+                            "REQUEST_METHOD": "POST",
+                            "CONTENT_TYPE": self.headers.get("Content-Type", ""),
+                        },
+                    )
+                    proof = create_file_proof(form)
+                    self.send_json({"message": f"Uploaded {proof['id']}.", "proof": proof})
+                elif path.startswith("/api/companion/"):
+                    if not self.require_companion_access():
+                        return
+                    self.handle_companion_post(path)
+                else:
+                    self.send_error_json(404, "Not found.")
         except Exception as exc:
             self.send_error_json(400, str(exc))
         finally:
@@ -3727,9 +4659,10 @@ class CompanionWebHandler(BaseHTTPRequestHandler):
         token = None
         try:
             parsed = urlparse(self.path)
-            token = CURRENT_PROFILE.set(self.request_profile_name(parsed))
-            ensure_user_profile(active_profile_name())
             path = parsed.path
+            token, _profile = self.set_active_profile_from_session()
+            if token is None:
+                return
             if path.startswith("/api/directives/"):
                 if not self.require_companion_access():
                     return
@@ -3738,24 +4671,58 @@ class CompanionWebHandler(BaseHTTPRequestHandler):
                 self.send_json({"message": f"Updated {directive['id']}.", "directive": directive})
             elif path == "/api/profile":
                 profile = update_user_profile(active_profile_name(), self.read_json_body())
-                self.send_json({"message": f"Updated {profile['display_name']}.", "profile": profile})
+                self.send_json({"message": f"Updated {profile['display_name']}.", "profile": public_profile(profile)})
+            elif path == "/api/profile/password":
+                profile = change_own_password(active_profile_name(), self.read_json_body())
+                self.send_json({"message": "Password changed.", "profile": profile})
+            elif path.startswith("/api/admin/users/"):
+                if not self.require_companion_access():
+                    return
+                profile_name = unquote(path.rsplit("/", 1)[1])
+                profile = admin_update_user_profile(profile_name, self.read_json_body())
+                self.send_json({"message": f"Updated {profile['display_name']}.", "profile": public_profile(profile), "profiles": public_profiles()})
+            elif path == "/api/admin/settings":
+                if not self.require_companion_access():
+                    return
+                settings = update_settings(self.read_json_body())
+                self.send_json({"message": "Updated session timeout.", "settings": settings})
             elif path.startswith("/api/project-todos/"):
+                if not self.require_category_access("projects"):
+                    return
                 todo_id = unquote(path.rsplit("/", 1)[1])
                 todo = update_project_todo(todo_id, self.read_json_body())
                 self.send_json({"message": f"Updated {todo['id']}.", "todo": todo})
             elif path.startswith("/api/chores/"):
+                if not self.require_category_access("chores"):
+                    return
                 chore_id = unquote(path.rsplit("/", 1)[1])
                 chore = update_chore(chore_id, self.read_json_body())
                 self.send_json({"message": f"Updated {chore['id']}.", "chore": chore})
             elif path.startswith("/api/diet/inventory/") and path.endswith("/adjust"):
+                if not self.require_category_access("diet"):
+                    return
                 item_id = unquote(path.split("/")[-2])
                 amount = clean_float(self.read_json_body().get("amount"), default=0)
                 item = adjust_inventory_item(item_id, amount)
                 self.send_json({"message": f"Adjusted {item['id']}.", "item": item})
             elif path.startswith("/api/diet/inventory/"):
+                if not self.require_category_access("diet"):
+                    return
                 item_id = unquote(path.rsplit("/", 1)[1])
                 item = update_inventory_item(item_id, self.read_json_body())
                 self.send_json({"message": f"Updated {item['id']}.", "item": item})
+            elif path.startswith("/api/fitness/orders/"):
+                if not self.require_category_access("fitness"):
+                    return
+                order_id = unquote(path.rsplit("/", 1)[1])
+                order = update_fitness_order(order_id, self.read_json_body())
+                self.send_json({"message": f"Updated {order['id']}.", "order": order, "fitness": fitness_state()})
+            elif path.startswith("/api/fitness/challenges/"):
+                if not self.require_category_access("fitness"):
+                    return
+                challenge_id = unquote(path.rsplit("/", 1)[1])
+                challenge = update_fitness_challenge(challenge_id, self.read_json_body())
+                self.send_json({"message": f"Updated {challenge['id']}.", "challenge": challenge, "fitness": fitness_state()})
             else:
                 self.send_error_json(404, "Not found.")
         except Exception as exc:
@@ -3768,17 +4735,28 @@ class CompanionWebHandler(BaseHTTPRequestHandler):
         token = None
         try:
             parsed = urlparse(self.path)
-            token = CURRENT_PROFILE.set(self.request_profile_name(parsed))
-            ensure_user_profile(active_profile_name())
             path = parsed.path
+            token, _profile = self.set_active_profile_from_session()
+            if token is None:
+                return
             if path.startswith("/api/project-todos/"):
+                if not self.require_category_access("projects"):
+                    return
                 todo_id = unquote(path.rsplit("/", 1)[1])
                 todo = delete_project_todo(todo_id)
                 self.send_json({"message": f"Deleted {todo['id']}.", "todo": todo})
             elif path.startswith("/api/chores/"):
+                if not self.require_category_access("chores"):
+                    return
                 chore_id = unquote(path.rsplit("/", 1)[1])
                 chore = delete_chore(chore_id)
                 self.send_json({"message": f"Deleted {chore['id']}.", "chore": chore})
+            elif path.startswith("/api/diet/inventory/"):
+                if not self.require_category_access("diet"):
+                    return
+                item_id = unquote(path.rsplit("/", 1)[1])
+                item = delete_inventory_item(item_id)
+                self.send_json({"message": f"Deleted {item['id']}.", "item": item})
             else:
                 self.send_error_json(404, "Not found.")
         except Exception as exc:
@@ -3860,10 +4838,12 @@ class CompanionWebHandler(BaseHTTPRequestHandler):
         raw = self.rfile.read(length).decode("utf-8")
         return json.loads(raw) if raw.strip() else {}
 
-    def send_json(self, data, status=200):
+    def send_json(self, data, status=200, headers=None):
         body = json.dumps(data, ensure_ascii=False).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
+        for key, value in (headers or {}).items():
+            self.send_header(key, value)
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
