@@ -1,5 +1,19 @@
 # Test Log
 
+## 2026-07-07 - 0.1.15 TODO Sprint
+
+| Severity | Area | Result | Notes |
+| --- | --- | --- | --- |
+| Info | Static compile | Pass | `python -m py_compile Companion_Web.py Memory_Manager.py` passed. |
+| Info | Compileall | Pass | `python -m compileall -q Companion_Web.py Memory_Manager.py` passed. |
+| Info | JSON validation | Pass | `companion-files.json`, `control_data/*.json`, and `tracker_data/*.json` parse successfully across 15 files, including `control_data/calendar.json`. |
+| Info | Functional smoke | Pass | Temporary isolated data verified non-negative Diet shopping diff, Fitness exercise/group creation and group item prescriptions, challenge `active`/`complete` mapping to `started`/`completed` history, Calendar event creation, companion archive search/resave, and integrity reporting. |
+| Info | Copyover check | Pass | `cmd /c copyover.bat --check` detected `D:\000_Files\002_Projects\EVE\MS\Companions-1`, version `0.1.15`, and copied no files. |
+| Info | Static marker gate | Pass | Static search confirmed `X-Content-Type-Options`, `Path.relative_to`, calendar routes, Fitness group routes, archive search controls, and Profile Settings controls are present; `changePasswordButton` is absent. |
+| Info | Folder cleanup audit | Pass | Legacy Java daily-reading files were moved under `legacy_daily_reading/`; `.gitignore` exceptions allow the moved `.class` and `.jar` artifacts to remain trackable there. |
+| Info | BUGS file | Not found | No `BUGS.md` or `BUGS` file exists in this repo during the 0.1.15 TODO sprint pass. |
+| Info | Whitespace gate | Pass | `git diff --check` reported no whitespace errors; Git only warned that edited text files will be normalized from LF to CRLF when touched. |
+
 ## 2026-07-04 - 0.1.14 TODO Sprint
 
 | Severity | Area | Result | Notes |

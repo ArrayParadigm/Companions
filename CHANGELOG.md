@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.1.15 - 2026-07-07
+
+### Added
+
+- Added security hardening for JSON request bodies, proof/project uploads, file downloads, and common response headers.
+- Added companion archive search with tag cloud metadata, plus ID-only archive/unarchive/resave controls that preserve opaque packet handling.
+- Added a companion packet integrity report surfaced through `/api/integrity` and the dashboard.
+- Added editable Fitness exercise database records, workout groups, and per-group exercise prescriptions.
+- Added a Calendar tab for scheduled fitness, projects, chores, diet, spiritual, directives, and general items.
+- Added Profile Settings as a signed-in tab for display-name and password changes.
+
+### Changed
+
+- Moved login/register controls to the Home page and kept protected tabs hidden for unauthenticated or timed-out sessions.
+- Kept Companion selection blank until explicitly chosen after login.
+- Updated the dashboard with Diet, Projects, Chores, Calendar, and Integrity summaries.
+- Moved the legacy Java daily-reading scheduler files into `legacy_daily_reading/`.
+- Bumped the release file to `Version-0.1.15.md`.
+
+### Fixed
+
+- Clamped Diet shopping-list difference values to zero so overstocked items do not show negative needs.
+- Mapped Fitness challenge UI status changes to `started` and `completed` so challenge history is logged.
+
 ## 0.1.14 - 2026-07-04
 
 ### Added

@@ -14,6 +14,7 @@ import re
 import secrets
 import shutil
 import time
+import uuid
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -49,6 +50,7 @@ READING_PROGRESS_FILE = DATA_DIR / "reading_progress.json"
 CHORES_FILE = DATA_DIR / "chores.json"
 DIET_FILE = DATA_DIR / "diet.json"
 FITNESS_FILE = DATA_DIR / "fitness.json"
+CALENDAR_FILE = DATA_DIR / "calendar.json"
 KJV_FILE = APP_DIR / "kjv.txt"
 DAILY_SCHEDULE_PLAN = "KJV Daily Schedule"
 ARRAY_PROFILE = "Array"
@@ -56,6 +58,22 @@ CURRENT_PROFILE = contextvars.ContextVar("current_profile", default=ARRAY_PROFIL
 SESSION_COOKIE = "companion_session"
 PASSWORD_ITERATIONS = 260000
 SESSIONS = {}
+MAX_JSON_BYTES = 512 * 1024
+MAX_UPLOAD_BYTES = 10 * 1024 * 1024
+ALLOWED_PROOF_EXTENSIONS = {".gif", ".jpeg", ".jpg", ".json", ".md", ".pdf", ".png", ".txt", ".webp"}
+ALLOWED_PROJECT_EXTENSIONS = {
+    ".csv", ".doc", ".docx", ".gif", ".jpeg", ".jpg", ".json", ".md", ".pdf", ".png",
+    ".txt", ".webp", ".xls", ".xlsx",
+}
+ALLOWED_UPLOAD_MIME_PREFIXES = ("image/", "text/")
+ALLOWED_UPLOAD_MIME_TYPES = {
+    "application/json",
+    "application/msword",
+    "application/pdf",
+    "application/vnd.ms-excel",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+}
 ACCESS_CATEGORIES = {
     "trackers": "Daily Check-ins",
     "fitness": "Fitness",
@@ -485,6 +503,7 @@ def ensure_profile_data_files(profile_name=None):
         "chores.json": {"next_chore_number": 1, "chores": []},
         "diet.json": {"next_inventory_number": 1, "next_food_number": 1, "inventory": [], "food_diary": []},
         "fitness.json": default_fitness_store(),
+        "calendar.json": default_calendar_store(),
     }
     for filename, fallback in files.items():
         path = folder / filename
@@ -557,6 +576,8 @@ def ensure_data_files():
         write_json(DIET_FILE, {"next_inventory_number": 1, "next_food_number": 1, "inventory": [], "food_diary": []})
     if not FITNESS_FILE.exists():
         write_json(FITNESS_FILE, default_fitness_store())
+    if not CALENDAR_FILE.exists():
+        write_json(CALENDAR_FILE, default_calendar_store())
 
 
 def read_json(path, fallback):
@@ -657,12 +678,37 @@ def default_fitness_store():
             "forward_fold": ["Seated hamstring stretch: 45 seconds per side", "Standing soft-knee forward hang: 30 seconds", "Calf stretch: 30 seconds per side", "Cat-cow: 6 slow reps"],
         },
         "exercise_library": [
-            {"name": "Dead bug", "purpose": "Core stability and lower-back protection.", "warning": "Stop if sharp back pain appears.", "progression": "Increase reps or extend legs farther.", "regression": "Move arms only or legs only."},
-            {"name": "Chair squat", "purpose": "Rebuild squat pattern safely.", "warning": "Stop for sharp knee or back pain.", "progression": "Lower the chair height.", "regression": "Use hands for support."},
-            {"name": "Incline pushup", "purpose": "Rebuild push strength.", "warning": "Stop for shoulder pain.", "progression": "Lower the incline.", "regression": "Use a higher support."},
-            {"name": "Glute bridge", "purpose": "Rebuild hips and posterior chain.", "warning": "No aggressive back arch.", "progression": "Add pauses.", "regression": "Reduce range."},
-            {"name": "Cat-cow", "purpose": "Gentle spinal motion.", "warning": "Avoid forced extension.", "progression": "Slower controlled reps.", "regression": "Smaller range."},
+            {"id": "EX-0001", "name": "Dead bug", "format": "sets_reps", "media_url": "", "details": "Core stability and lower-back protection.", "warning": "Stop if sharp back pain appears.", "progression": "Increase reps or extend legs farther.", "regression": "Move arms only or legs only."},
+            {"id": "EX-0002", "name": "Chair squat", "format": "sets_reps", "media_url": "", "details": "Rebuild squat pattern safely.", "warning": "Stop for sharp knee or back pain.", "progression": "Lower the chair height.", "regression": "Use hands for support."},
+            {"id": "EX-0003", "name": "Incline pushup", "format": "sets_reps", "media_url": "", "details": "Rebuild push strength.", "warning": "Stop for shoulder pain.", "progression": "Lower the incline.", "regression": "Use a higher support."},
+            {"id": "EX-0004", "name": "Glute bridge", "format": "sets_reps", "media_url": "", "details": "Rebuild hips and posterior chain.", "warning": "No aggressive back arch.", "progression": "Add pauses.", "regression": "Reduce range."},
+            {"id": "EX-0005", "name": "Cat-cow", "format": "duration_reps", "media_url": "", "details": "Gentle spinal motion.", "warning": "Avoid forced extension.", "progression": "Slower controlled reps.", "regression": "Smaller range."},
+            {"id": "EX-0006", "name": "Walk", "format": "duration_distance", "media_url": "", "details": "Easy cardio base builder.", "warning": "No running until walking base is adequate.", "progression": "Add minutes before intensity.", "regression": "Shorter walk or indoor pacing."},
         ],
+        "exercise_groups": [
+            {
+                "id": "GRP-0001",
+                "name": "Strength A",
+                "type": "Strength",
+                "notes": "Low-back cautious strength base.",
+                "items": [
+                    {"exercise_id": "EX-0002", "sets": 2, "reps": 8, "duration_seconds": 0, "distance": "", "notes": "Use chair height that keeps form clean."},
+                    {"exercise_id": "EX-0003", "sets": 2, "reps": 6, "duration_seconds": 0, "distance": "", "notes": "Use a high incline if needed."},
+                    {"exercise_id": "EX-0004", "sets": 2, "reps": 10, "duration_seconds": 0, "distance": "", "notes": "Pause briefly at the top."},
+                ],
+            },
+            {
+                "id": "GRP-0002",
+                "name": "Cardio A",
+                "type": "Cardio",
+                "notes": "Simple walking base.",
+                "items": [
+                    {"exercise_id": "EX-0006", "sets": 1, "reps": 0, "duration_seconds": 600, "distance": "", "notes": "Easy pace."},
+                ],
+            },
+        ],
+        "next_exercise_number": 7,
+        "next_group_number": 3,
         "readiness": [],
         "mobility": [],
         "cardio": [],
@@ -694,9 +740,93 @@ def fitness_store():
         if key not in store:
             store[key] = value
             changed = True
+    if normalize_fitness_exercises(store):
+        changed = True
+    if normalize_fitness_groups(store):
+        changed = True
     if changed:
         write_json(profile_data_file("fitness.json"), store)
     return store
+
+
+def normalize_fitness_exercises(store):
+    changed = False
+    next_number = clean_int(store.get("next_exercise_number"), default=1, minimum=1)
+    used_numbers = []
+    for exercise in store.setdefault("exercise_library", []):
+        if not exercise.get("id"):
+            exercise["id"] = f"EX-{next_number:04d}"
+            next_number += 1
+            changed = True
+        match = re.match(r"^EX-(\d+)$", str(exercise.get("id", "")))
+        if match:
+            used_numbers.append(int(match.group(1)))
+        if "details" not in exercise:
+            exercise["details"] = str(exercise.get("purpose") or "").strip()
+            changed = True
+        for key, fallback in {
+            "format": "sets_reps",
+            "media_url": "",
+            "warning": "",
+            "progression": "",
+            "regression": "",
+        }.items():
+            if key not in exercise:
+                exercise[key] = fallback
+                changed = True
+    minimum_next = max(used_numbers or [0]) + 1
+    if clean_int(store.get("next_exercise_number"), default=1, minimum=1) < minimum_next:
+        store["next_exercise_number"] = minimum_next
+        changed = True
+    return changed
+
+
+def normalize_fitness_groups(store):
+    changed = False
+    if "exercise_groups" not in store:
+        store["exercise_groups"] = default_fitness_store()["exercise_groups"]
+        changed = True
+    next_number = clean_int(store.get("next_group_number"), default=1, minimum=1)
+    used_numbers = []
+    for group in store.setdefault("exercise_groups", []):
+        if not group.get("id"):
+            group["id"] = f"GRP-{next_number:04d}"
+            next_number += 1
+            changed = True
+        match = re.match(r"^GRP-(\d+)$", str(group.get("id", "")))
+        if match:
+            used_numbers.append(int(match.group(1)))
+        group.setdefault("name", "Workout Group")
+        group.setdefault("type", "")
+        group.setdefault("notes", "")
+        group.setdefault("items", [])
+        for item in group["items"]:
+            item.setdefault("exercise_id", "")
+            item["sets"] = clean_int(item.get("sets"), default=0, minimum=0)
+            item["reps"] = clean_int(item.get("reps"), default=0, minimum=0)
+            item["duration_seconds"] = clean_int(item.get("duration_seconds"), default=0, minimum=0)
+            item.setdefault("distance", "")
+            item.setdefault("notes", "")
+    minimum_next = max(used_numbers or [0]) + 1
+    if clean_int(store.get("next_group_number"), default=1, minimum=1) < minimum_next:
+        store["next_group_number"] = minimum_next
+        changed = True
+    return changed
+
+
+def default_calendar_store():
+    return {"next_event_number": 1, "events": []}
+
+
+def calendar_store():
+    ensure_data_files()
+    ensure_profile_data_files()
+    return read_json(profile_data_file("calendar.json"), default_calendar_store())
+
+
+def calendar_state():
+    store = calendar_store()
+    return {"events": store.get("events", [])[-100:]}
 
 
 def next_id(store, counter_name, prefix):
@@ -1126,6 +1256,139 @@ def create_fitness_order(data):
     return order
 
 
+def create_fitness_exercise(data):
+    store = fitness_store()
+    exercise = {
+        "id": next_id(store, "next_exercise_number", "EX"),
+        "name": str(data.get("name") or "").strip(),
+        "format": str(data.get("format") or "sets_reps").strip() or "sets_reps",
+        "media_url": str(data.get("media_url") or "").strip(),
+        "details": str(data.get("details") or data.get("purpose") or "").strip(),
+        "warning": str(data.get("warning") or "").strip(),
+        "progression": str(data.get("progression") or "").strip(),
+        "regression": str(data.get("regression") or "").strip(),
+        "created_at": now_stamp(),
+        "updated_at": now_stamp(),
+    }
+    if not exercise["name"]:
+        raise ValueError("Exercise name is required.")
+    store.setdefault("exercise_library", []).append(exercise)
+    write_fitness_store(store)
+    return exercise
+
+
+def update_fitness_exercise(exercise_id, data):
+    store = fitness_store()
+    for exercise in store.get("exercise_library", []):
+        if exercise.get("id", "").lower() == exercise_id.lower():
+            for key in ("name", "format", "media_url", "details", "warning", "progression", "regression"):
+                if key in data:
+                    exercise[key] = str(data.get(key) or "").strip()
+            if not exercise.get("name"):
+                raise ValueError("Exercise name is required.")
+            exercise["updated_at"] = now_stamp()
+            write_fitness_store(store)
+            return exercise
+    raise ValueError(f"Exercise not found: {exercise_id}")
+
+
+def delete_fitness_exercise(exercise_id):
+    store = fitness_store()
+    library = store.get("exercise_library", [])
+    for index, exercise in enumerate(library):
+        if exercise.get("id", "").lower() == exercise_id.lower():
+            removed = library.pop(index)
+            for group in store.get("exercise_groups", []):
+                group["items"] = [
+                    item for item in group.get("items", [])
+                    if str(item.get("exercise_id", "")).lower() != exercise_id.lower()
+                ]
+            write_fitness_store(store)
+            return removed
+    raise ValueError(f"Exercise not found: {exercise_id}")
+
+
+def create_fitness_group(data):
+    store = fitness_store()
+    group = {
+        "id": next_id(store, "next_group_number", "GRP"),
+        "name": str(data.get("name") or "").strip(),
+        "type": str(data.get("type") or "").strip(),
+        "notes": str(data.get("notes") or "").strip(),
+        "items": [],
+        "created_at": now_stamp(),
+        "updated_at": now_stamp(),
+    }
+    if not group["name"]:
+        raise ValueError("Group name is required.")
+    store.setdefault("exercise_groups", []).append(group)
+    write_fitness_store(store)
+    return group
+
+
+def update_fitness_group(group_id, data):
+    store = fitness_store()
+    for group in store.get("exercise_groups", []):
+        if group.get("id", "").lower() == group_id.lower():
+            for key in ("name", "type", "notes"):
+                if key in data:
+                    group[key] = str(data.get(key) or "").strip()
+            if not group.get("name"):
+                raise ValueError("Group name is required.")
+            group["updated_at"] = now_stamp()
+            write_fitness_store(store)
+            return group
+    raise ValueError(f"Fitness group not found: {group_id}")
+
+
+def delete_fitness_group(group_id):
+    store = fitness_store()
+    groups = store.get("exercise_groups", [])
+    for index, group in enumerate(groups):
+        if group.get("id", "").lower() == group_id.lower():
+            removed = groups.pop(index)
+            write_fitness_store(store)
+            return removed
+    raise ValueError(f"Fitness group not found: {group_id}")
+
+
+def add_fitness_group_item(group_id, data):
+    store = fitness_store()
+    exercise_id = str(data.get("exercise_id") or "").strip()
+    if not any(ex.get("id", "").lower() == exercise_id.lower() for ex in store.get("exercise_library", [])):
+        raise ValueError("Choose a valid exercise.")
+    item = {
+        "id": f"ITM-{uuid.uuid4().hex[:8].upper()}",
+        "exercise_id": exercise_id,
+        "sets": clean_int(data.get("sets"), default=0, minimum=0),
+        "reps": clean_int(data.get("reps"), default=0, minimum=0),
+        "duration_seconds": clean_int(data.get("duration_seconds"), default=0, minimum=0),
+        "distance": str(data.get("distance") or "").strip(),
+        "notes": str(data.get("notes") or "").strip(),
+    }
+    for group in store.get("exercise_groups", []):
+        if group.get("id", "").lower() == group_id.lower():
+            group.setdefault("items", []).append(item)
+            group["updated_at"] = now_stamp()
+            write_fitness_store(store)
+            return item
+    raise ValueError(f"Fitness group not found: {group_id}")
+
+
+def delete_fitness_group_item(group_id, item_id):
+    store = fitness_store()
+    for group in store.get("exercise_groups", []):
+        if group.get("id", "").lower() == group_id.lower():
+            before = len(group.get("items", []))
+            group["items"] = [item for item in group.get("items", []) if item.get("id", "").lower() != item_id.lower()]
+            if len(group["items"]) == before:
+                raise ValueError(f"Fitness group item not found: {item_id}")
+            group["updated_at"] = now_stamp()
+            write_fitness_store(store)
+            return {"id": item_id}
+    raise ValueError(f"Fitness group not found: {group_id}")
+
+
 def update_fitness_challenge(challenge_id, data):
     store = fitness_store()
     for challenge in store.get("challenges", []):
@@ -1133,6 +1396,10 @@ def update_fitness_challenge(challenge_id, data):
             for key in ("status", "report", "completion_status"):
                 if key in data:
                     challenge[key] = str(data.get(key) or "").strip()
+            if challenge.get("status") == "active":
+                challenge["status"] = "started"
+            elif challenge.get("status") == "complete":
+                challenge["status"] = "completed"
             challenge["updated_at"] = now_stamp()
             if challenge.get("status") in ("started", "completed"):
                 store.setdefault("history", []).append({
@@ -1147,6 +1414,52 @@ def update_fitness_challenge(challenge_id, data):
             write_fitness_store(store)
             return challenge
     raise ValueError(f"Fitness challenge not found: {challenge_id}")
+
+
+def create_calendar_event(data):
+    store = calendar_store()
+    event = {
+        "id": next_id(store, "next_event_number", "CAL"),
+        "date": str(data.get("date") or datetime.now().strftime("%Y-%m-%d")).strip(),
+        "title": str(data.get("title") or "").strip(),
+        "category": str(data.get("category") or "general").strip().lower() or "general",
+        "source_id": str(data.get("source_id") or "").strip(),
+        "notes": str(data.get("notes") or "").strip(),
+        "created_at": now_stamp(),
+        "updated_at": now_stamp(),
+    }
+    if not event["title"]:
+        raise ValueError("Calendar event title is required.")
+    store.setdefault("events", []).append(event)
+    write_json(profile_data_file("calendar.json"), store)
+    return event
+
+
+def update_calendar_event(event_id, data):
+    store = calendar_store()
+    for event in store.get("events", []):
+        if event.get("id", "").lower() == event_id.lower():
+            for key in ("date", "title", "category", "source_id", "notes"):
+                if key in data:
+                    value = str(data.get(key) or "").strip()
+                    event[key] = value.lower() if key == "category" else value
+            if not event.get("title"):
+                raise ValueError("Calendar event title is required.")
+            event["updated_at"] = now_stamp()
+            write_json(profile_data_file("calendar.json"), store)
+            return event
+    raise ValueError(f"Calendar event not found: {event_id}")
+
+
+def delete_calendar_event(event_id):
+    store = calendar_store()
+    events = store.get("events", [])
+    for index, event in enumerate(events):
+        if event.get("id", "").lower() == event_id.lower():
+            removed = events.pop(index)
+            write_json(profile_data_file("calendar.json"), store)
+            return removed
+    raise ValueError(f"Calendar event not found: {event_id}")
 
 
 def create_chore(data):
@@ -1306,7 +1619,7 @@ def shopping_item_for_inventory(item):
         "unit_label": item.get("unit_label", "unit"),
         "on_hand": on_hand,
         "par": par,
-        "diff": round(par - on_hand, 2),
+        "diff": round(max(0, par - on_hand), 2),
         "needed_units": round(needed_units, 2),
         "containers": containers,
         "cost": round(containers * cost, 2),
@@ -1431,11 +1744,11 @@ def create_project_asset(form):
         raise ValueError("Project asset upload requires a project todo.")
     if item is None or not getattr(item, "filename", ""):
         raise ValueError("Project asset upload requires a file.")
+    original_name = validate_upload_item(item, ALLOWED_PROJECT_EXTENSIONS)
 
     for todo in store.get("todos", []):
         if todo.get("id", "").lower() == todo_id.lower():
             safe_project = safe_name(todo_id)
-            original_name = safe_name(Path(item.filename).name)
             target_dir = active_project_asset_dir() / safe_project
             target_dir.mkdir(parents=True, exist_ok=True)
             asset_id = f"AST-{len(todo.get('assets', [])) + 1:04d}"
@@ -1913,7 +2226,7 @@ def create_file_proof(form):
         raise ValueError("Proof upload requires a file.")
 
     safe_directive = safe_name(directive_id)
-    original_name = safe_name(Path(item.filename).name)
+    original_name = validate_upload_item(item, ALLOWED_PROOF_EXTENSIONS)
     target_dir = PROOF_DIR / safe_directive
     target_dir.mkdir(parents=True, exist_ok=True)
     target_path = target_dir / f"{proof_id}-{original_name}"
@@ -1949,6 +2262,37 @@ def field_value(form, name):
     if isinstance(value, list):
         value = value[0]
     return value.value.strip() if hasattr(value, "value") else str(value).strip()
+
+
+def ensure_content_length(headers, max_bytes, label):
+    try:
+        length = int(headers.get("Content-Length", "0"))
+    except ValueError as exc:
+        raise ValueError(f"{label} request has an invalid Content-Length.") from exc
+    if length > max_bytes:
+        raise ValueError(f"{label} is too large. Limit is {max_bytes // (1024 * 1024)} MB.")
+    return length
+
+
+def is_relative_to(path, root):
+    try:
+        path.relative_to(root)
+        return True
+    except ValueError:
+        return False
+
+
+def validate_upload_item(item, allowed_extensions):
+    filename = safe_name(Path(getattr(item, "filename", "")).name)
+    if not filename:
+        raise ValueError("Upload requires a file name.")
+    extension = Path(filename).suffix.lower()
+    if extension not in allowed_extensions:
+        raise ValueError(f"Upload type is not allowed: {extension or 'no extension'}.")
+    mime_type = str(getattr(item, "type", "") or mimetypes.guess_type(filename)[0] or "application/octet-stream")
+    if not (mime_type in ALLOWED_UPLOAD_MIME_TYPES or any(mime_type.startswith(prefix) for prefix in ALLOWED_UPLOAD_MIME_PREFIXES)):
+        raise ValueError(f"Upload MIME type is not allowed: {mime_type}.")
+    return filename
 
 
 def safe_name(name):
@@ -1991,6 +2335,100 @@ def companion_index(companion):
             }
         )
     return entries
+
+
+def companion_archive_state(companion, query=""):
+    payload = load_payload(companion)
+    archive = payload.get("archive", [])
+    tag_counts = {}
+    rows = []
+    needle = str(query or "").strip().lower()
+    for entry in archive:
+        tags = [str(tag) for tag in entry.get("tags", []) if str(tag).strip()]
+        for tag in tags:
+            tag_counts[tag] = tag_counts.get(tag, 0) + 1
+        searchable = " ".join([
+            str(entry.get("id", "")),
+            str(entry.get("category", "")),
+            " ".join(tags),
+            str(entry.get("archived_reason", "")),
+        ]).lower()
+        if needle and needle not in searchable:
+            continue
+        rows.append({
+            "id": entry.get("id", ""),
+            "category": entry.get("category", ""),
+            "status": entry.get("status", "archived"),
+            "weight": entry.get("weight", ""),
+            "tags": tags,
+            "archived_at": entry.get("archived_at", ""),
+            "archived_reason": entry.get("archived_reason", ""),
+        })
+    tags = [{"tag": tag, "count": count} for tag, count in sorted(tag_counts.items(), key=lambda item: (-item[1], item[0].lower()))]
+    return {"tags": tags, "entries": rows}
+
+
+def archive_companion_memory(companion, action, memory_id):
+    if action not in {"archive", "unarchive", "resave"}:
+        raise ValueError("Unknown archive action.")
+    payload = load_payload(companion)
+    applied_id = apply_command_line(payload, f"{action} {memory_id}")
+    backup_path = save_payload(companion, payload)
+    return {
+        "id": applied_id,
+        "backup": backup_path.name if backup_path else None,
+        "summary": packet_summary(companion, payload),
+        "archive": companion_archive_state(companion),
+    }
+
+
+def validate_companion_payload(companion):
+    issues = []
+    try:
+        payload = load_payload(companion)
+    except Exception as exc:
+        return [{"severity": "High", "area": f"{companion} packet", "message": str(exc)}]
+
+    if payload.get("schema") != "ai-companion-memory/v1":
+        issues.append({"severity": "Medium", "area": f"{companion} packet", "message": "Unexpected schema value."})
+    seen = set()
+    for collection_name in ("memories", "archive"):
+        for entry in payload.get(collection_name, []):
+            memory_id = str(entry.get("id") or "").strip()
+            if not memory_id:
+                issues.append({"severity": "High", "area": f"{companion} {collection_name}", "message": "Entry is missing an id."})
+            elif memory_id.lower() in seen:
+                issues.append({"severity": "High", "area": f"{companion} {collection_name}", "message": f"Duplicate memory id {memory_id}."})
+            seen.add(memory_id.lower())
+            if collection_name == "memories" and entry.get("status") != "active":
+                issues.append({"severity": "Medium", "area": f"{companion} active memories", "message": f"{memory_id} is not marked active."})
+            if collection_name == "archive" and entry.get("status") != "archived":
+                issues.append({"severity": "Medium", "area": f"{companion} archive", "message": f"{memory_id} is not marked archived."})
+            if entry.get("category") not in CATEGORIES:
+                issues.append({"severity": "Low", "area": f"{companion} {memory_id}", "message": f"Unknown category {entry.get('category')}."})
+    return issues
+
+
+def integrity_report():
+    issues = []
+    for path in [USERS_FILE, SETTINGS_FILE, DIRECTIVES_FILE, PROOF_FILE, CHECKINS_FILE, PROJECT_TODOS_FILE, READING_PROGRESS_FILE, CHORES_FILE, DIET_FILE, FITNESS_FILE, CALENDAR_FILE]:
+        try:
+            if path.exists():
+                json.loads(path.read_text(encoding="utf-8"))
+        except Exception as exc:
+            issues.append({"severity": "High", "area": path.name, "message": str(exc)})
+    for companion in COMPANION_FILES:
+        issues.extend(validate_companion_payload(companion))
+    for proof in proof_store().get("proof", []):
+        proof_path = proof.get("path")
+        if proof_path and not (APP_DIR / proof_path).exists():
+            issues.append({"severity": "Medium", "area": "Proof Vault", "message": f"{proof.get('id')} references missing file {proof_path}."})
+    for todo in project_todo_store().get("todos", []):
+        for asset in todo.get("assets", []):
+            asset_path = asset.get("path")
+            if asset_path and not (APP_DIR / asset_path).exists():
+                issues.append({"severity": "Medium", "area": "Project Assets", "message": f"{todo.get('id')} references missing file {asset_path}."})
+    return {"ok": not issues, "issues": issues, "checked_at": now_stamp()}
 
 
 def looks_like_command_batch(command_text):
@@ -2211,6 +2649,8 @@ def app_state():
         "chores": chore_store().get("chores", []) if access_map.get("chores") else [],
         "diet": diet_state() if access_map.get("diet") else {"summary": {}, "inventory": [], "shopping_list": [], "food_diary": []},
         "fitness": fitness_state() if access_map.get("fitness") else {},
+        "calendar": calendar_state(),
+        "integrity": integrity_report() if companion_access else {"ok": True, "issues": [], "checked_at": now_stamp()},
     }
 
 
@@ -2470,22 +2910,17 @@ INDEX_HTML = r"""<!doctype html>
   <header>
     <h1>Companion Control Console</h1>
     <div class="profile-bar">
-      <select id="loginProfileSelect"></select>
-      <input id="loginPassword" type="password" placeholder="password">
-      <input id="profileRegisterName" placeholder="new profile">
-      <input id="profileRegisterPassword" type="password" placeholder="new password">
-      <button class="inline" id="profileLoginButton">Log In</button>
+      <span class="muted" id="activeProfileLabel"></span>
       <button class="inline" id="profileLogoutButton">Log Out</button>
-      <button class="inline" id="profileRegisterButton">Register</button>
       <button class="inline" id="profileSettingsButton">Profile Settings</button>
-      <button class="inline" id="changePasswordButton">Change Password</button>
       <button class="inline primary" id="adminButton" data-admin-only>Admin</button>
       <div class="status" id="status">Loading...</div>
     </div>
   </header>
   <main>
     <nav>
-      <button data-tab="dashboard" class="active">Dashboard</button>
+      <button data-tab="home" class="active">Home</button>
+      <button data-tab="dashboard">Dashboard</button>
       <button data-tab="memory" data-companion-only>Companion</button>
       <button data-tab="trackers" data-access-category="trackers">Daily Check-ins</button>
       <button data-tab="fitness" data-access-category="fitness">Fitness</button>
@@ -2493,29 +2928,76 @@ INDEX_HTML = r"""<!doctype html>
       <button data-tab="projects" data-access-category="projects">Projects</button>
       <button data-tab="chores" data-access-category="chores">Chores</button>
       <button data-tab="diet" data-access-category="diet">Diet</button>
+      <button data-tab="calendar">Calendar</button>
+      <button data-tab="profileSettings">Profile Settings</button>
       <button data-tab="admin" data-admin-only>Admin</button>
     </nav>
-    <section id="dashboard" class="active">
+    <section id="home" class="active">
+      <div class="grid">
+        <div class="panel">
+          <h2>Sign In</h2>
+          <label>Profile</label>
+          <select id="loginProfileSelect"></select>
+          <label>Password</label>
+          <input id="loginPassword" type="password">
+          <button class="inline primary" id="profileLoginButton">Log In</button>
+        </div>
+        <div class="panel">
+          <h2>Register Profile</h2>
+          <label>Profile name</label>
+          <input id="profileRegisterName">
+          <label>Password</label>
+          <input id="profileRegisterPassword" type="password">
+          <button class="inline" id="profileRegisterButton">Register</button>
+        </div>
+      </div>
+    </section>
+    <section id="dashboard">
       <div class="dashboard-grid">
-        <div class="panel" data-companion-only>
+        <button class="panel todo-row" onclick="document.querySelector('button[data-tab=memory]').click()" data-companion-only>
           <h2>Memory Manager</h2>
           <div class="metric" id="dashCompanions">0</div>
           <div class="muted" id="dashMemory">No packets loaded.</div>
-        </div>
-        <div class="panel" data-companion-only>
+        </button>
+        <button class="panel todo-row" onclick="showCompanionTab('directives')" data-companion-only>
           <h2>Directives</h2>
           <div class="metric" id="dashDirectives">0</div>
           <div class="muted" id="dashDirectiveDetail"></div>
-        </div>
-        <div class="panel">
+        </button>
+        <button class="panel todo-row" onclick="document.querySelector('button[data-tab=spiritual]').click()" data-access-category="spiritual">
           <h2>Spiritual</h2>
           <div class="metric" id="dashSpirit">--</div>
           <div class="muted" id="dashSpiritDetail"></div>
-        </div>
-        <div class="panel">
+        </button>
+        <button class="panel todo-row" onclick="document.querySelector('button[data-tab=fitness]').click()" data-access-category="fitness">
           <h2>Fitness</h2>
           <div class="metric" id="dashPhysical">0</div>
           <div class="muted" id="dashPhysicalDetail"></div>
+        </button>
+        <button class="panel todo-row" onclick="document.querySelector('button[data-tab=diet]').click()" data-access-category="diet">
+          <h2>Diet</h2>
+          <div class="metric" id="dashDiet">0</div>
+          <div class="muted" id="dashDietDetail"></div>
+        </button>
+        <button class="panel todo-row" onclick="document.querySelector('button[data-tab=projects]').click()" data-access-category="projects">
+          <h2>Projects</h2>
+          <div class="metric" id="dashProjects">0</div>
+          <div class="muted" id="dashProjectsDetail"></div>
+        </button>
+        <button class="panel todo-row" onclick="document.querySelector('button[data-tab=chores]').click()" data-access-category="chores">
+          <h2>Chores</h2>
+          <div class="metric" id="dashChores">0</div>
+          <div class="muted" id="dashChoresDetail"></div>
+        </button>
+        <button class="panel todo-row" onclick="document.querySelector('button[data-tab=calendar]').click()">
+          <h2>Calendar</h2>
+          <div class="metric" id="dashCalendar">0</div>
+          <div class="muted" id="dashCalendarDetail"></div>
+        </button>
+        <div class="panel" data-companion-only>
+          <h2>Integrity</h2>
+          <div class="metric" id="dashIntegrity">OK</div>
+          <div class="muted" id="dashIntegrityDetail"></div>
         </div>
         <div class="panel span-2">
           <h2>Work Categories</h2>
@@ -2587,6 +3069,15 @@ INDEX_HTML = r"""<!doctype html>
         <div class="panel full">
           <h2>ID-Only Memory Index</h2>
           <div id="memoryIndex"></div>
+        </div>
+        <div class="panel full">
+          <h2>Archive Search</h2>
+          <div class="row">
+            <input id="archiveSearch" placeholder="tag, category, archived reason, or ID">
+            <button class="inline primary" onclick="loadArchive()">Search Archive</button>
+          </div>
+          <div id="archiveTagCloud"></div>
+          <div id="archiveList"></div>
         </div>
       </div>
     </section>
@@ -2786,6 +3277,37 @@ INDEX_HTML = r"""<!doctype html>
         </div>
         <div class="panel full fitness-view" data-fitness-view="plan">
           <h2>Workout Plan</h2>
+          <div class="field-grid">
+            <div><label>Group</label><input id="fitnessGroupName" placeholder="Strength A"></div>
+            <div><label>Type</label><input id="fitnessGroupType" placeholder="Strength, Cardio, Mobility"></div>
+            <div><label>Notes</label><input id="fitnessGroupNotes"></div>
+          </div>
+          <button class="inline primary" onclick="createFitnessGroup()">Add Group</button>
+          <div class="field-grid">
+            <div><label>Exercise</label><input id="fitnessExerciseName" placeholder="Bodyweight squat"></div>
+            <div><label>Format</label><select id="fitnessExerciseFormat"><option value="sets_reps">Sets/Reps</option><option value="duration_reps">Duration/Reps</option><option value="duration_distance">Duration/Distance</option></select></div>
+            <div><label>Media URL</label><input id="fitnessExerciseMedia"></div>
+          </div>
+          <label>Exercise details</label>
+          <textarea id="fitnessExerciseDetails"></textarea>
+          <div class="field-grid">
+            <div><label>Warning</label><input id="fitnessExerciseWarning"></div>
+            <div><label>Progression</label><input id="fitnessExerciseProgression"></div>
+            <div><label>Regression</label><input id="fitnessExerciseRegression"></div>
+          </div>
+          <button class="inline primary" onclick="createFitnessExercise()">Add Exercise</button>
+          <h2 style="margin-top:14px;">Add Exercise to Group</h2>
+          <div class="field-grid">
+            <div><label>Group</label><select id="fitnessPlanGroupSelect"></select></div>
+            <div><label>Exercise</label><select id="fitnessPlanExerciseSelect"></select></div>
+            <div><label>Sets</label><input id="fitnessPlanSets" type="number" min="0" value="1"></div>
+            <div><label>Reps</label><input id="fitnessPlanReps" type="number" min="0" value="0"></div>
+            <div><label>Duration seconds</label><input id="fitnessPlanDuration" type="number" min="0" value="0"></div>
+            <div><label>Distance</label><input id="fitnessPlanDistance"></div>
+          </div>
+          <label>Prescription notes</label>
+          <input id="fitnessPlanNotes">
+          <button class="inline primary" onclick="addFitnessGroupItem()">Add to Group</button>
           <div id="fitnessPlan"></div>
         </div>
         <div class="panel fitness-view" data-fitness-view="mobility">
@@ -3035,6 +3557,53 @@ INDEX_HTML = r"""<!doctype html>
         </div>
       </div>
     </section>
+    <section id="calendar">
+      <div class="grid">
+        <div class="panel">
+          <h2>Calendar</h2>
+          <div class="field-grid">
+            <div><label>Date</label><input id="calendarDate" type="date"></div>
+            <div><label>Category</label><select id="calendarCategory">
+              <option value="fitness">Fitness</option>
+              <option value="projects">Projects</option>
+              <option value="chores">Chores</option>
+              <option value="diet">Diet</option>
+              <option value="spiritual">Spiritual</option>
+              <option value="directives">Companion Directives</option>
+              <option value="general">General</option>
+            </select></div>
+            <div><label>Source ID</label><input id="calendarSourceId" placeholder="optional"></div>
+          </div>
+          <label>Title</label>
+          <input id="calendarTitle">
+          <label>Notes</label>
+          <textarea id="calendarNotes"></textarea>
+          <button class="inline primary" onclick="createCalendarEvent()">Add Event</button>
+        </div>
+        <div class="panel">
+          <h2>Scheduled Items</h2>
+          <div id="calendarList"></div>
+        </div>
+      </div>
+    </section>
+    <section id="profileSettings">
+      <div class="grid">
+        <div class="panel">
+          <h2>Profile Settings</h2>
+          <label>Display name</label>
+          <input id="profileDisplayName">
+          <button class="inline primary" onclick="saveProfileSettings()">Save Profile</button>
+        </div>
+        <div class="panel">
+          <h2>Password</h2>
+          <label>Current password</label>
+          <input id="profileCurrentPassword" type="password">
+          <label>New password</label>
+          <input id="profileNewPassword" type="password">
+          <button class="inline primary" onclick="saveProfilePassword()">Change Password</button>
+        </div>
+      </div>
+    </section>
     <section id="admin" data-admin-only>
       <div class="grid">
         <div class="panel">
@@ -3144,18 +3713,8 @@ INDEX_HTML = r"""<!doctype html>
       await loadSession();
     });
 
-    document.getElementById('changePasswordButton').addEventListener('click', async () => {
-      const current = prompt('Current password');
-      if (current === null) return;
-      const next = prompt('New password');
-      if (next === null) return;
-      const res = await fetch('/api/profile/password', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ current_password: current, new_password: next })
-      });
-      await handleResponse(res);
-      setStatus('Password changed.');
+    document.getElementById('profileSettingsButton').addEventListener('click', () => {
+      document.querySelector('button[data-tab="profileSettings"]').click();
     });
 
     document.getElementById('adminButton').addEventListener('click', () => {
@@ -3179,34 +3738,26 @@ INDEX_HTML = r"""<!doctype html>
       select.innerHTML = profiles.map(profile => `<option value="${escapeHtml(profile.name)}">${escapeHtml(profile.display_name || profile.name)}${profile.approved && profile.active ? '' : ' (pending)'}</option>`).join('');
       if (sessionInfo.bootstrap_required) select.value = 'Array';
       document.getElementById('profileLoginButton').textContent = sessionInfo.bootstrap_required ? 'Set Array Password' : 'Log In';
+      for (const id of ['loginProfileSelect', 'loginPassword', 'profileLoginButton', 'profileRegisterName', 'profileRegisterPassword', 'profileRegisterButton']) {
+        document.getElementById(id).style.display = sessionInfo.authenticated ? 'none' : '';
+      }
+      document.getElementById('activeProfileLabel').textContent = sessionInfo.authenticated && sessionInfo.profile ? `Signed in: ${sessionInfo.profile.display_name || sessionInfo.profile.name}` : '';
       document.getElementById('profileLogoutButton').style.display = sessionInfo.authenticated ? '' : 'none';
       document.getElementById('profileSettingsButton').style.display = sessionInfo.authenticated ? '' : 'none';
-      document.getElementById('changePasswordButton').style.display = sessionInfo.authenticated ? '' : 'none';
     }
 
     function applyLoggedOutState() {
+      document.querySelectorAll('nav button').forEach(button => button.classList.remove('active'));
       document.querySelectorAll('nav button').forEach(button => {
-        button.style.display = button.dataset.tab === 'dashboard' ? '' : 'none';
+        button.style.display = button.dataset.tab === 'home' ? '' : 'none';
       });
       document.querySelectorAll('section').forEach(section => section.classList.remove('active'));
-      document.getElementById('dashboard').classList.add('active');
+      document.querySelector('button[data-tab="home"]').classList.add('active');
+      document.getElementById('home').classList.add('active');
       selectedCompanion = null;
       selectedProjectTodoId = null;
       setStatus(sessionInfo.bootstrap_required ? 'Set the first Array password.' : 'Login required.');
     }
-
-    document.getElementById('profileSettingsButton').addEventListener('click', async () => {
-      const current = state && state.profile ? state.profile.display_name : activeProfileName();
-      const displayName = prompt('Display name', current || activeProfileName());
-      if (displayName === null) return;
-      const res = await fetch('/api/profile', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ display_name: displayName })
-      });
-      await handleResponse(res);
-      await loadState();
-    });
 
     document.querySelectorAll('nav button').forEach(button => {
       button.addEventListener('click', () => {
@@ -3300,6 +3851,7 @@ INDEX_HTML = r"""<!doctype html>
 
     document.getElementById('checkinDate').value = new Date().toISOString().slice(0, 10);
     document.getElementById('foodDate').value = new Date().toISOString().slice(0, 10);
+    document.getElementById('calendarDate').value = new Date().toISOString().slice(0, 10);
 
     document.getElementById('proofForm').addEventListener('submit', async event => {
       event.preventDefault();
@@ -3332,7 +3884,6 @@ INDEX_HTML = r"""<!doctype html>
       sessionInfo = Object.assign({}, sessionInfo || {}, { authenticated: true, profile: state.profile, profiles: state.profiles || [], settings: state.settings || {}, access_categories: state.access_categories || {}, bootstrap_required: false });
       renderProfileControls();
       applyAccessControls();
-      selectedCompanion = state.companions.length ? (selectedCompanion || state.companions[0].name) : null;
       renderSelectors();
       renderDashboard();
       renderDirectives();
@@ -3343,6 +3894,8 @@ INDEX_HTML = r"""<!doctype html>
       renderProjects();
       renderChores();
       renderDiet();
+      renderCalendar();
+      renderProfileSettings();
       renderAdmin();
       renderCouncil();
       if ((state.access || {}).companions && selectedCompanion) {
@@ -3350,6 +3903,10 @@ INDEX_HTML = r"""<!doctype html>
         renderMemoryIndex();
       }
       renderMemoryIndex();
+      const active = document.querySelector('section.active');
+      if (!active || active.id === 'home') {
+        document.querySelector('button[data-tab="dashboard"]').click();
+      }
       setStatus('Ready.');
     }
 
@@ -3391,7 +3948,7 @@ INDEX_HTML = r"""<!doctype html>
     }
 
     function renderSelectors() {
-      const companionOptions = state.companions.map(c => `<option value="${escapeHtml(c.name)}">${escapeHtml(c.name)}</option>`).join('');
+      const companionOptions = `<option value="">Select companion</option>` + state.companions.map(c => `<option value="${escapeHtml(c.name)}">${escapeHtml(c.name)}</option>`).join('');
       for (const id of ['companionSelect', 'directiveIssuer']) {
         const select = document.getElementById(id);
         if (!select) continue;
@@ -3403,10 +3960,14 @@ INDEX_HTML = r"""<!doctype html>
     }
 
     async function loadPacket() {
-      if (!selectedCompanion) return;
+      if (!selectedCompanion) {
+        document.getElementById('packetBox').value = '';
+        return;
+      }
       const res = await fetch(`/api/companion/${encodeURIComponent(selectedCompanion)}/packet`);
       const data = await handleResponse(res, false);
       document.getElementById('packetBox').value = data.packet;
+      await loadArchive();
     }
 
     function currentCompanion() {
@@ -3418,14 +3979,43 @@ INDEX_HTML = r"""<!doctype html>
       const companion = currentCompanion();
       if (!companion) {
         document.getElementById('memoryIndex').innerHTML = '<p class="muted">No companion selected.</p>';
+        document.getElementById('archiveTagCloud').innerHTML = '';
+        document.getElementById('archiveList').innerHTML = '<p class="muted">No companion selected.</p>';
         return;
       }
       if (companion.error) {
         document.getElementById('memoryIndex').innerHTML = `<p class="muted">${escapeHtml(companion.summary)}</p><p class="muted">${escapeHtml(companion.error)}</p>`;
         return;
       }
-      const rows = companion.index.map(entry => `<tr><td>${escapeHtml(entry.id || '')}</td><td>${escapeHtml(entry.category || '')}</td><td>${escapeHtml(entry.status || '')}</td><td>${escapeHtml(String(entry.weight || ''))}</td><td>${escapeHtml((entry.tags || []).join(', '))}</td><td>${escapeHtml(entry.updated_at || entry.created_at || '')}</td></tr>`).join('');
-      document.getElementById('memoryIndex').innerHTML = `<p class="muted">${escapeHtml(companion.summary)}</p><div class="scrollbox"><table><thead><tr><th>ID</th><th>Category</th><th>Status</th><th>Weight</th><th>Tags</th><th>Updated</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+      const rows = companion.index.map(entry => {
+        const active = String(entry.status || '').toLowerCase() === 'active';
+        const actions = active
+          ? `<button class="inline" onclick="archiveMemoryId('${escapeJs(entry.id)}','archive')">Archive</button>`
+          : `<button class="inline" onclick="archiveMemoryId('${escapeJs(entry.id)}','unarchive')">Unarchive</button> <button class="inline" onclick="archiveMemoryId('${escapeJs(entry.id)}','resave')">Resave</button>`;
+        return `<tr><td>${escapeHtml(entry.id || '')}</td><td>${escapeHtml(entry.category || '')}</td><td>${escapeHtml(entry.status || '')}</td><td>${escapeHtml(String(entry.weight || ''))}</td><td>${escapeHtml((entry.tags || []).join(', '))}</td><td>${escapeHtml(entry.updated_at || entry.created_at || '')}</td><td>${actions}</td></tr>`;
+      }).join('');
+      document.getElementById('memoryIndex').innerHTML = `<p class="muted">${escapeHtml(companion.summary)}</p><div class="scrollbox"><table><thead><tr><th>ID</th><th>Category</th><th>Status</th><th>Weight</th><th>Tags</th><th>Updated</th><th>Actions</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+    }
+
+    async function loadArchive() {
+      if (!selectedCompanion) return;
+      const query = document.getElementById('archiveSearch').value || '';
+      const res = await fetch(`/api/companion/${encodeURIComponent(selectedCompanion)}/archive?q=${encodeURIComponent(query)}`);
+      const archive = await handleResponse(res, false);
+      document.getElementById('archiveTagCloud').innerHTML = (archive.tags || []).map(item => `<button class="inline" onclick="document.getElementById('archiveSearch').value='${escapeJs(item.tag)}'; loadArchive();">${escapeHtml(item.tag)} (${escapeHtml(item.count)})</button>`).join('') || '<p class="muted">No archive tags yet.</p>';
+      const rows = (archive.entries || []).map(entry => `<tr><td>${escapeHtml(entry.id)}</td><td>${escapeHtml(entry.category)}</td><td>${escapeHtml((entry.tags || []).join(', '))}</td><td>${escapeHtml(entry.archived_at || '')}</td><td>${escapeHtml(entry.archived_reason || '')}</td><td><button class="inline" onclick="archiveMemoryId('${escapeJs(entry.id)}','unarchive')">Unarchive</button> <button class="inline" onclick="archiveMemoryId('${escapeJs(entry.id)}','resave')">Resave</button></td></tr>`).join('');
+      document.getElementById('archiveList').innerHTML = `<div class="scrollbox"><table><thead><tr><th>ID</th><th>Category</th><th>Tags</th><th>Archived</th><th>Reason</th><th>Actions</th></tr></thead><tbody>${rows || '<tr><td colspan="6" class="muted">No archived IDs match.</td></tr>'}</tbody></table></div>`;
+    }
+
+    async function archiveMemoryId(memoryId, archiveAction) {
+      if (!selectedCompanion || !memoryId) return;
+      const res = await fetch(`/api/companion/${encodeURIComponent(selectedCompanion)}/archive`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: memoryId, archive_action: archiveAction })
+      });
+      await handleResponse(res);
+      await loadState();
     }
 
     function renderDashboard() {
@@ -3444,6 +4034,24 @@ INDEX_HTML = r"""<!doctype html>
       document.getElementById('dashPhysicalDetail').textContent = latest ? `${latest.body.fitness_completed ? 'fitness complete' : 'fitness open'}, ${latest.body.sleep_hours || 0}h sleep latest` : 'No daily check-in yet.';
       document.getElementById('dashSpirit').textContent = latest ? (latest.spirit.scripture ? 'read' : 'open') : '--';
       document.getElementById('dashSpiritDetail').textContent = latest ? `${latest.spirit.prayer ? 'prayer' : 'no prayer logged'} / ${latest.spirit.reading_status || 'no reading status'}` : 'No spiritual check-in yet.';
+      const dietSummary = (state.diet || {}).summary || {};
+      document.getElementById('dashDiet').textContent = dietSummary.shopping_item_count || 0;
+      document.getElementById('dashDietDetail').textContent = `$${Number(dietSummary.shopping_cart_cost || 0).toFixed(2)} shopping estimate`;
+      const projectBuckets = Object.values((state.projects || {}).summary || {});
+      const openProjects = projectBuckets.reduce((total, item) => total + (item.open || 0), 0);
+      document.getElementById('dashProjects').textContent = openProjects;
+      document.getElementById('dashProjectsDetail').textContent = `${projectBuckets.reduce((total, item) => total + (item.total || 0), 0)} total project item(s)`;
+      const chores = state.chores || [];
+      document.getElementById('dashChores').textContent = chores.filter(chore => String(chore.status || 'open').toLowerCase() !== 'done').length;
+      document.getElementById('dashChoresDetail').textContent = `${chores.length} chore(s) tracked`;
+      const events = ((state.calendar || {}).events || []);
+      document.getElementById('dashCalendar').textContent = events.length;
+      document.getElementById('dashCalendarDetail').textContent = events.slice(-1)[0] ? `${events.slice(-1)[0].date}: ${events.slice(-1)[0].title}` : 'No scheduled items.';
+      if (companionAccess) {
+        const integrity = state.integrity || { ok: true, issues: [] };
+        document.getElementById('dashIntegrity').textContent = integrity.ok ? 'OK' : integrity.issues.length;
+        document.getElementById('dashIntegrityDetail').textContent = integrity.ok ? `Checked ${integrity.checked_at || ''}` : `${integrity.issues.length} issue(s) found`;
+      }
       document.getElementById('dashWorkCloud').innerHTML = renderTagCloud(state.trackers.work_categories, state.trackers.task_categories);
       document.getElementById('dashLatestCheckin').innerHTML = latest ? renderCheckinCard(latest) : '<p class="muted">No entries.</p>';
     }
@@ -4045,6 +4653,84 @@ INDEX_HTML = r"""<!doctype html>
       setStatus('Shopping list copied.');
     }
 
+    function renderCalendar() {
+      const events = ((state.calendar || {}).events || []).slice().sort((a, b) => String(a.date || '').localeCompare(String(b.date || '')));
+      document.getElementById('calendarList').innerHTML = events.length
+        ? `<div class="scrollbox"><table><thead><tr><th>Date</th><th>Category</th><th>Title</th><th>Source</th><th>Notes</th><th>Actions</th></tr></thead><tbody>${events.map(event => `<tr><td>${escapeHtml(event.date || '')}</td><td>${escapeHtml(event.category || '')}</td><td>${escapeHtml(event.title || '')}</td><td>${escapeHtml(event.source_id || '')}</td><td>${escapeHtml(event.notes || '')}</td><td><button class="inline" onclick="editCalendarEvent('${escapeJs(event.id)}')">Edit</button> <button class="inline danger" onclick="deleteCalendarEvent('${escapeJs(event.id)}')">Delete</button></td></tr>`).join('')}</tbody></table></div>`
+        : '<p class="muted">No scheduled items.</p>';
+    }
+
+    async function createCalendarEvent() {
+      const res = await fetch('/api/calendar', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          date: document.getElementById('calendarDate').value,
+          category: document.getElementById('calendarCategory').value,
+          source_id: document.getElementById('calendarSourceId').value,
+          title: document.getElementById('calendarTitle').value,
+          notes: document.getElementById('calendarNotes').value
+        })
+      });
+      await handleResponse(res);
+      for (const id of ['calendarSourceId', 'calendarTitle', 'calendarNotes']) document.getElementById(id).value = '';
+      await loadState();
+    }
+
+    async function editCalendarEvent(eventId) {
+      const event = ((state.calendar || {}).events || []).find(item => item.id === eventId);
+      if (!event) return;
+      const title = prompt('Calendar title', event.title || '');
+      if (title === null) return;
+      const date = prompt('Calendar date', event.date || '');
+      if (date === null) return;
+      const res = await fetch(`/api/calendar/${encodeURIComponent(eventId)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(Object.assign({}, event, { title, date }))
+      });
+      await handleResponse(res);
+      await loadState();
+    }
+
+    async function deleteCalendarEvent(eventId) {
+      if (!confirm('Delete this calendar event?')) return;
+      const res = await fetch(`/api/calendar/${encodeURIComponent(eventId)}`, { method: 'DELETE' });
+      await handleResponse(res);
+      await loadState();
+    }
+
+    function renderProfileSettings() {
+      if (!state || !state.profile) return;
+      document.getElementById('profileDisplayName').value = state.profile.display_name || state.profile.name || '';
+      document.getElementById('profileCurrentPassword').value = '';
+      document.getElementById('profileNewPassword').value = '';
+    }
+
+    async function saveProfileSettings() {
+      const res = await fetch('/api/profile', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ display_name: document.getElementById('profileDisplayName').value })
+      });
+      await handleResponse(res);
+      await loadState();
+    }
+
+    async function saveProfilePassword() {
+      const res = await fetch('/api/profile/password', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          current_password: document.getElementById('profileCurrentPassword').value,
+          new_password: document.getElementById('profileNewPassword').value
+        })
+      });
+      await handleResponse(res);
+      await loadState();
+      setStatus('Password changed.');
+    }
+
     async function setProjectTodoStatus(todoId, status) {
       const res = await fetch(`/api/project-todos/${encodeURIComponent(todoId)}`, {
         method: 'PATCH',
@@ -4098,11 +4784,28 @@ INDEX_HTML = r"""<!doctype html>
         <div class="panel"><h3>Open Orders</h3><div class="metric">${escapeHtml(summary.open_orders || 0)}</div><p class="muted">History ${escapeHtml(summary.history_count || 0)}</p></div>
       </div>`;
       document.getElementById('fitnessOrders').innerHTML = (fitness.orders || []).map(order => `<div class="todo-row"><strong>${escapeHtml(order.title)}</strong> <span class="pill">${escapeHtml(order.status || 'open')}</span><p class="muted">${escapeHtml(order.details || '')}</p><button class="inline primary" onclick="updateFitnessOrder('${escapeJs(order.id)}','done')">Mark Done</button> <button class="inline" onclick="updateFitnessOrder('${escapeJs(order.id)}','snoozed')">Snooze</button> <button class="inline" onclick="rescheduleFitnessOrder('${escapeJs(order.id)}')">Reschedule</button> <button class="inline" onclick="skipFitnessOrder('${escapeJs(order.id)}')">Skip with Reason</button></div>`).join('') || '<p class="muted">No orders.</p>';
-      const plan = fitness.workout_plan || {};
-      document.getElementById('fitnessPlan').innerHTML = Object.entries(plan).map(([key, value]) => `<h3>${escapeHtml(key.replaceAll('_',' '))}</h3><ul>${[].concat(value || []).map(item => `<li>${escapeHtml(item)}</li>`).join('')}</ul>`).join('') + `<h3>Safety Rules</h3><ul>${(fitness.safety_rules || []).map(rule => `<li>${escapeHtml(rule)}</li>`).join('')}</ul>`;
+      renderFitnessPlan(fitness);
       document.getElementById('fitnessProgress').innerHTML = renderSimpleList((fitness.progress_notes || []).slice().reverse(), item => `${item.date || ''} | ${item.note || item.notes || ''}`);
-      document.getElementById('fitnessChallenges').innerHTML = (fitness.challenges || []).map(challenge => `<div class="todo-row"><strong>${escapeHtml(challenge.name)}</strong> <span class="pill">${escapeHtml(challenge.status)}</span><p class="muted">${escapeHtml(challenge.requirements || '')}</p><button class="inline primary" onclick="updateFitnessChallenge('${escapeJs(challenge.id)}','active')">Start Challenge</button> <button class="inline" onclick="updateFitnessChallenge('${escapeJs(challenge.id)}','complete')">Complete Challenge</button></div>`).join('') || '<p class="muted">No challenges.</p>';
+      document.getElementById('fitnessChallenges').innerHTML = (fitness.challenges || []).map(challenge => `<div class="todo-row"><strong>${escapeHtml(challenge.name)}</strong> <span class="pill">${escapeHtml(challenge.status)}</span><p class="muted">${escapeHtml(challenge.requirements || '')}</p><button class="inline primary" onclick="updateFitnessChallenge('${escapeJs(challenge.id)}','started')">Start Challenge</button> <button class="inline" onclick="updateFitnessChallenge('${escapeJs(challenge.id)}','completed')">Complete Challenge</button></div>`).join('') || '<p class="muted">No challenges.</p>';
       document.getElementById('fitnessHistory').innerHTML = renderSimpleList((fitness.history || []).slice().reverse(), item => `${item.date || ''} | ${item.title || item.kind || ''} | ${item.status || ''}`);
+    }
+
+    function renderFitnessPlan(fitness) {
+      const exercises = fitness.exercise_library || [];
+      const exerciseMap = Object.fromEntries(exercises.map(exercise => [exercise.id, exercise]));
+      document.getElementById('fitnessPlanGroupSelect').innerHTML = (fitness.exercise_groups || []).map(group => `<option value="${escapeHtml(group.id)}">${escapeHtml(group.name)}</option>`).join('');
+      document.getElementById('fitnessPlanExerciseSelect').innerHTML = exercises.map(exercise => `<option value="${escapeHtml(exercise.id)}">${escapeHtml(exercise.name)} (${escapeHtml(exercise.format || '')})</option>`).join('');
+      const groupRows = (fitness.exercise_groups || []).map(group => {
+        const items = (group.items || []).map(item => {
+          const exercise = exerciseMap[item.exercise_id] || {};
+          const prescription = [`${item.sets || 0} sets`, item.reps ? `${item.reps} reps` : '', item.duration_seconds ? `${item.duration_seconds}s` : '', item.distance || ''].filter(Boolean).join(' / ');
+          return `<tr><td>${escapeHtml(exercise.name || item.exercise_id)}</td><td>${escapeHtml(exercise.format || '')}</td><td>${escapeHtml(prescription)}</td><td>${escapeHtml(item.notes || '')}</td><td><button class="inline" onclick="deleteFitnessGroupItem('${escapeJs(group.id)}','${escapeJs(item.id)}')">Remove</button></td></tr>`;
+        }).join('');
+        return `<div class="panel" style="margin-top:10px;"><h3>${escapeHtml(group.name)} <span class="pill">${escapeHtml(group.type || '')}</span></h3><p class="muted">${escapeHtml(group.notes || '')}</p><button class="inline" onclick="editFitnessGroup('${escapeJs(group.id)}')">Edit Group</button> <button class="inline danger" onclick="deleteFitnessGroup('${escapeJs(group.id)}')">Delete Group</button><div class="scrollbox"><table><thead><tr><th>Exercise</th><th>Format</th><th>Prescription</th><th>Notes</th><th>Actions</th></tr></thead><tbody>${items || '<tr><td colspan="5" class="muted">No exercises in this group.</td></tr>'}</tbody></table></div></div>`;
+      }).join('');
+      const exerciseRows = exercises.map(exercise => `<tr><td>${escapeHtml(exercise.name)}</td><td>${escapeHtml(exercise.format)}</td><td>${escapeHtml(exercise.details || '')}</td><td>${exercise.media_url ? `<a href="${escapeHtml(exercise.media_url)}" target="_blank">media</a>` : ''}</td><td><button class="inline" onclick="editFitnessExercise('${escapeJs(exercise.id)}')">Edit</button> <button class="inline danger" onclick="deleteFitnessExercise('${escapeJs(exercise.id)}')">Delete</button></td></tr>`).join('');
+      const legacyPlan = Object.entries(fitness.workout_plan || {}).map(([key, value]) => `<h3>${escapeHtml(key.replaceAll('_',' '))}</h3><ul>${[].concat(value || []).map(item => `<li>${escapeHtml(item)}</li>`).join('')}</ul>`).join('');
+      document.getElementById('fitnessPlan').innerHTML = `${groupRows}<h2 style="margin-top:14px;">Exercise Database</h2><div class="scrollbox"><table><thead><tr><th>Name</th><th>Format</th><th>Details</th><th>Media</th><th>Actions</th></tr></thead><tbody>${exerciseRows}</tbody></table></div><h2 style="margin-top:14px;">Legacy Weekly Structure</h2>${legacyPlan}<h3>Safety Rules</h3><ul>${(fitness.safety_rules || []).map(rule => `<li>${escapeHtml(rule)}</li>`).join('')}</ul>`;
     }
 
     function renderFitnessTabs() {
@@ -4119,6 +4822,113 @@ INDEX_HTML = r"""<!doctype html>
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(Object.assign({ status }, extra))
       });
+      await handleResponse(res);
+      await loadState();
+    }
+
+    async function createFitnessGroup() {
+      const res = await fetch('/api/fitness/groups', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: document.getElementById('fitnessGroupName').value,
+          type: document.getElementById('fitnessGroupType').value,
+          notes: document.getElementById('fitnessGroupNotes').value
+        })
+      });
+      await handleResponse(res);
+      for (const id of ['fitnessGroupName', 'fitnessGroupType', 'fitnessGroupNotes']) document.getElementById(id).value = '';
+      await loadState();
+    }
+
+    async function editFitnessGroup(groupId) {
+      const group = ((state.fitness || {}).exercise_groups || []).find(item => item.id === groupId);
+      if (!group) return;
+      const name = prompt('Group name', group.name || '');
+      if (name === null) return;
+      const type = prompt('Group type', group.type || '');
+      if (type === null) return;
+      const notes = prompt('Group notes', group.notes || '');
+      if (notes === null) return;
+      const res = await fetch(`/api/fitness/groups/${encodeURIComponent(groupId)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, type, notes })
+      });
+      await handleResponse(res);
+      await loadState();
+    }
+
+    async function deleteFitnessGroup(groupId) {
+      if (!confirm('Delete this workout group?')) return;
+      const res = await fetch(`/api/fitness/groups/${encodeURIComponent(groupId)}`, { method: 'DELETE' });
+      await handleResponse(res);
+      await loadState();
+    }
+
+    async function createFitnessExercise() {
+      const res = await fetch('/api/fitness/exercises', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: document.getElementById('fitnessExerciseName').value,
+          format: document.getElementById('fitnessExerciseFormat').value,
+          media_url: document.getElementById('fitnessExerciseMedia').value,
+          details: document.getElementById('fitnessExerciseDetails').value,
+          warning: document.getElementById('fitnessExerciseWarning').value,
+          progression: document.getElementById('fitnessExerciseProgression').value,
+          regression: document.getElementById('fitnessExerciseRegression').value
+        })
+      });
+      await handleResponse(res);
+      for (const id of ['fitnessExerciseName', 'fitnessExerciseMedia', 'fitnessExerciseDetails', 'fitnessExerciseWarning', 'fitnessExerciseProgression', 'fitnessExerciseRegression']) document.getElementById(id).value = '';
+      await loadState();
+    }
+
+    async function editFitnessExercise(exerciseId) {
+      const exercise = ((state.fitness || {}).exercise_library || []).find(item => item.id === exerciseId);
+      if (!exercise) return;
+      const name = prompt('Exercise name', exercise.name || '');
+      if (name === null) return;
+      const details = prompt('Exercise details', exercise.details || '');
+      if (details === null) return;
+      const res = await fetch(`/api/fitness/exercises/${encodeURIComponent(exerciseId)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(Object.assign({}, exercise, { name, details }))
+      });
+      await handleResponse(res);
+      await loadState();
+    }
+
+    async function deleteFitnessExercise(exerciseId) {
+      if (!confirm('Delete this exercise from the database and groups?')) return;
+      const res = await fetch(`/api/fitness/exercises/${encodeURIComponent(exerciseId)}`, { method: 'DELETE' });
+      await handleResponse(res);
+      await loadState();
+    }
+
+    async function addFitnessGroupItem() {
+      const groupId = document.getElementById('fitnessPlanGroupSelect').value;
+      if (!groupId) return setStatus('Choose a workout group.');
+      const res = await fetch(`/api/fitness/groups/${encodeURIComponent(groupId)}/items`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          exercise_id: document.getElementById('fitnessPlanExerciseSelect').value,
+          sets: document.getElementById('fitnessPlanSets').value,
+          reps: document.getElementById('fitnessPlanReps').value,
+          duration_seconds: document.getElementById('fitnessPlanDuration').value,
+          distance: document.getElementById('fitnessPlanDistance').value,
+          notes: document.getElementById('fitnessPlanNotes').value
+        })
+      });
+      await handleResponse(res);
+      await loadState();
+    }
+
+    async function deleteFitnessGroupItem(groupId, itemId) {
+      const res = await fetch(`/api/fitness/groups/${encodeURIComponent(groupId)}/items/${encodeURIComponent(itemId)}`, { method: 'DELETE' });
       await handleResponse(res);
       await loadState();
     }
@@ -4458,6 +5268,13 @@ class CompanionWebHandler(BaseHTTPRequestHandler):
                 if token is None:
                     return
                 self.send_json(app_state())
+            elif path == "/api/integrity":
+                token, _profile = self.set_active_profile_from_session()
+                if token is None:
+                    return
+                if not self.require_companion_access():
+                    return
+                self.send_json(integrity_report())
             elif path == "/api/bible/chapter":
                 token, _profile = self.set_active_profile_from_session()
                 if token is None or not self.require_category_access("spiritual"):
@@ -4580,6 +5397,22 @@ class CompanionWebHandler(BaseHTTPRequestHandler):
                         return
                     order = create_fitness_order(self.read_json_body())
                     self.send_json({"message": f"Created {order['id']}.", "order": order, "fitness": fitness_state()})
+                elif path == "/api/fitness/exercises":
+                    if not self.require_category_access("fitness"):
+                        return
+                    exercise = create_fitness_exercise(self.read_json_body())
+                    self.send_json({"message": f"Created {exercise['id']}.", "exercise": exercise, "fitness": fitness_state()})
+                elif path == "/api/fitness/groups":
+                    if not self.require_category_access("fitness"):
+                        return
+                    group = create_fitness_group(self.read_json_body())
+                    self.send_json({"message": f"Created {group['id']}.", "group": group, "fitness": fitness_state()})
+                elif path.startswith("/api/fitness/groups/") and path.endswith("/items"):
+                    if not self.require_category_access("fitness"):
+                        return
+                    group_id = unquote(path.split("/")[-2])
+                    item = add_fitness_group_item(group_id, self.read_json_body())
+                    self.send_json({"message": f"Added {item['id']}.", "item": item, "fitness": fitness_state()})
                 elif path.startswith("/api/fitness/logs/"):
                     if not self.require_category_access("fitness"):
                         return
@@ -4612,6 +5445,9 @@ class CompanionWebHandler(BaseHTTPRequestHandler):
                         return
                     todo = create_project_todo(self.read_json_body())
                     self.send_json({"message": f"Created {todo['id']}.", "todo": todo})
+                elif path == "/api/calendar":
+                    event = create_calendar_event(self.read_json_body())
+                    self.send_json({"message": f"Created {event['id']}.", "event": event, "calendar": calendar_state()})
                 elif path == "/api/reading-progress":
                     if not self.require_category_access("spiritual"):
                         return
@@ -4620,6 +5456,7 @@ class CompanionWebHandler(BaseHTTPRequestHandler):
                 elif path == "/api/project-assets/upload":
                     if not self.require_category_access("projects"):
                         return
+                    ensure_content_length(self.headers, MAX_UPLOAD_BYTES, "Project asset upload")
                     form = cgi.FieldStorage(
                         fp=self.rfile,
                         headers=self.headers,
@@ -4633,6 +5470,7 @@ class CompanionWebHandler(BaseHTTPRequestHandler):
                 elif path == "/api/proof/upload":
                     if not self.require_companion_access():
                         return
+                    ensure_content_length(self.headers, MAX_UPLOAD_BYTES, "Proof upload")
                     form = cgi.FieldStorage(
                         fp=self.rfile,
                         headers=self.headers,
@@ -4717,12 +5555,28 @@ class CompanionWebHandler(BaseHTTPRequestHandler):
                 order_id = unquote(path.rsplit("/", 1)[1])
                 order = update_fitness_order(order_id, self.read_json_body())
                 self.send_json({"message": f"Updated {order['id']}.", "order": order, "fitness": fitness_state()})
+            elif path.startswith("/api/fitness/exercises/"):
+                if not self.require_category_access("fitness"):
+                    return
+                exercise_id = unquote(path.rsplit("/", 1)[1])
+                exercise = update_fitness_exercise(exercise_id, self.read_json_body())
+                self.send_json({"message": f"Updated {exercise['id']}.", "exercise": exercise, "fitness": fitness_state()})
+            elif path.startswith("/api/fitness/groups/"):
+                if not self.require_category_access("fitness"):
+                    return
+                group_id = unquote(path.rsplit("/", 1)[1])
+                group = update_fitness_group(group_id, self.read_json_body())
+                self.send_json({"message": f"Updated {group['id']}.", "group": group, "fitness": fitness_state()})
             elif path.startswith("/api/fitness/challenges/"):
                 if not self.require_category_access("fitness"):
                     return
                 challenge_id = unquote(path.rsplit("/", 1)[1])
                 challenge = update_fitness_challenge(challenge_id, self.read_json_body())
                 self.send_json({"message": f"Updated {challenge['id']}.", "challenge": challenge, "fitness": fitness_state()})
+            elif path.startswith("/api/calendar/"):
+                event_id = unquote(path.rsplit("/", 1)[1])
+                event = update_calendar_event(event_id, self.read_json_body())
+                self.send_json({"message": f"Updated {event['id']}.", "event": event, "calendar": calendar_state()})
             else:
                 self.send_error_json(404, "Not found.")
         except Exception as exc:
@@ -4757,6 +5611,30 @@ class CompanionWebHandler(BaseHTTPRequestHandler):
                 item_id = unquote(path.rsplit("/", 1)[1])
                 item = delete_inventory_item(item_id)
                 self.send_json({"message": f"Deleted {item['id']}.", "item": item})
+            elif path.startswith("/api/fitness/groups/") and "/items/" in path:
+                if not self.require_category_access("fitness"):
+                    return
+                parts = [unquote(part) for part in path.split("/") if part]
+                group_id = parts[3]
+                item_id = parts[5]
+                item = delete_fitness_group_item(group_id, item_id)
+                self.send_json({"message": f"Deleted {item['id']}.", "item": item, "fitness": fitness_state()})
+            elif path.startswith("/api/fitness/groups/"):
+                if not self.require_category_access("fitness"):
+                    return
+                group_id = unquote(path.rsplit("/", 1)[1])
+                group = delete_fitness_group(group_id)
+                self.send_json({"message": f"Deleted {group['id']}.", "group": group, "fitness": fitness_state()})
+            elif path.startswith("/api/fitness/exercises/"):
+                if not self.require_category_access("fitness"):
+                    return
+                exercise_id = unquote(path.rsplit("/", 1)[1])
+                exercise = delete_fitness_exercise(exercise_id)
+                self.send_json({"message": f"Deleted {exercise['id']}.", "exercise": exercise, "fitness": fitness_state()})
+            elif path.startswith("/api/calendar/"):
+                event_id = unquote(path.rsplit("/", 1)[1])
+                event = delete_calendar_event(event_id)
+                self.send_json({"message": f"Deleted {event['id']}.", "event": event, "calendar": calendar_state()})
             else:
                 self.send_error_json(404, "Not found.")
         except Exception as exc:
@@ -4784,6 +5662,9 @@ class CompanionWebHandler(BaseHTTPRequestHandler):
             self.send_json({"handoff": HANDOFF_TEMPLATE.format(companion=companion, packet=packet)})
         elif action == "index":
             self.send_json({"index": companion_index(companion)})
+        elif action == "archive":
+            params = parse_qs(urlparse(self.path).query)
+            self.send_json(companion_archive_state(companion, params.get("q", [""])[0]))
         else:
             self.send_error_json(404, "Unknown companion action.")
 
@@ -4828,20 +5709,29 @@ class CompanionWebHandler(BaseHTTPRequestHandler):
                     "backup": backup_path.name if backup_path else None,
                 }
             )
+        elif action == "archive":
+            result = archive_companion_memory(companion, data.get("archive_action", "archive"), data.get("id", ""))
+            self.send_json({"message": f"Archive action applied to {result['id']}.", **result})
         else:
             self.send_error_json(404, "Unknown companion action.")
 
     def read_json_body(self):
-        length = int(self.headers.get("Content-Length", "0"))
+        length = ensure_content_length(self.headers, MAX_JSON_BYTES, "JSON body")
         if length <= 0:
             return {}
         raw = self.rfile.read(length).decode("utf-8")
         return json.loads(raw) if raw.strip() else {}
 
+    def send_security_headers(self):
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Referrer-Policy", "same-origin")
+        self.send_header("Cache-Control", "no-store")
+
     def send_json(self, data, status=200, headers=None):
         body = json.dumps(data, ensure_ascii=False).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_security_headers()
         for key, value in (headers or {}).items():
             self.send_header(key, value)
         self.send_header("Content-Length", str(len(body)))
@@ -4852,6 +5742,7 @@ class CompanionWebHandler(BaseHTTPRequestHandler):
         body = html.encode("utf-8")
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_security_headers()
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
@@ -4859,13 +5750,14 @@ class CompanionWebHandler(BaseHTTPRequestHandler):
     def send_file(self, path, as_attachment=False):
         resolved = path.resolve()
         allowed_roots = [PROOF_DIR.resolve(), PROJECT_ASSET_DIR.resolve()]
-        in_allowed_root = any(str(resolved).lower().startswith(str(root).lower()) for root in allowed_roots)
+        in_allowed_root = any(is_relative_to(resolved, root) for root in allowed_roots)
         if not in_allowed_root or not resolved.exists():
             self.send_error_json(404, "File not found.")
             return
         body = resolved.read_bytes()
         self.send_response(200)
         self.send_header("Content-Type", mimetypes.guess_type(resolved.name)[0] or "application/octet-stream")
+        self.send_security_headers()
         if as_attachment:
             self.send_header("Content-Disposition", f'attachment; filename="{resolved.name}"')
         self.send_header("Content-Length", str(len(body)))
