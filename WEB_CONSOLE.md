@@ -40,11 +40,16 @@ http://127.0.0.1:8787
 - Logged-in users can change their own password when they know the current one.
 - New companions can be created from the Companion Memory tab; this writes a live server memory packet and updates the live companion registry.
 - `Copy Handoff` gives a companion plain instructions plus its encoded packet.
-- `Copy Packet` gives only the raw base64 packet.
+- `Copy Packet` gives only the raw base64 packet, excluding archived memories.
+- `Download Packet` saves the raw base64 packet as a `.txt` file, also
+  excluding archived memories.
 - `Apply Commands` accepts companion memory and directive command batches.
 - The ID-only memory index exposes IDs, categories, status, weights, tags, and timestamps, but not memory content.
 - Directive Ledger stores companion-issued directives and shows date added plus task details in readable plaintext.
-- Directive commands also write a compact history memory into the issuer companion packet when the issuer is configured.
+- Directive commands also write a compact history memory into the issuer
+  companion packet when the issuer is configured. Packet export backfills any
+  missing issuer directive memories and keeps them active until the companion
+  archives the directive memory.
 - Proof Vault stores proof metadata and uploaded proof files under `proof_vault/`, with download links for uploaded files.
 - Daily Check-ins read the existing emotional journal, productivity tracker, and fitness tracker JSON files, with summary, check-in, and journal tabs.
 - The Journal tab can add new journal entries.

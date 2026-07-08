@@ -1,5 +1,18 @@
 # Test Log
 
+## 2026-07-08 - 0.1.17 TODO Sprint
+
+| Severity | Area | Result | Notes |
+| --- | --- | --- | --- |
+| Info | Static compile | Pass | `python -m py_compile Companion_Web.py Memory_Manager.py` passed. |
+| Info | Compileall | Pass | `python -m compileall -q Companion_Web.py Memory_Manager.py` passed. |
+| Info | JSON validation | Pass | `companion-files.json`, `control_data/*.json`, and `tracker_data/*.json` parse successfully across 15 files. |
+| Info | Functional smoke | Pass | Temporary isolated data verified packet export excludes archived memories, preserves active memories, backfills one issuer directive memory, keeps the local archive intact, and does not duplicate directive memories on repeat export. |
+| Info | Copyover check | Pass | `cmd /c copyover.bat --check` detected `D:\000_Files\002_Projects\EVE\MS\Companions-1`, version `0.1.17`, and copied no files. |
+| Info | Static marker gate | Pass | Static search confirmed packet export helpers, archive export policy metadata, Download Packet control, and client-side text download creation are present. |
+| Info | BUGS file | Not found | No `BUGS.md` or `BUGS` file exists in this repo during the 0.1.17 TODO sprint pass. |
+| Info | Whitespace gate | Pass | `git diff --check` reported no whitespace errors; Git only warned that edited text files will be normalized from LF to CRLF when touched. |
+
 ## 2026-07-08 - 0.1.16 TODO Sprint
 
 | Severity | Area | Result | Notes |

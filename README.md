@@ -25,8 +25,10 @@ python Companion_Web.py --host 127.0.0.1 --port 8787
   progress, fitness, diet, projects, chores, calendar, integrity, work
   categories, and latest daily check-in.
 - Companion: Array-only packet management. The Memory tab copies opaque packets
-  and handoffs, adds memories, applies command batches, creates companions,
-  shows an ID-only memory index, and searches the archive by tag/category/ID.
+  and handoffs, downloads packet text files, adds memories, applies command
+  batches, creates companions, shows an ID-only memory index, and searches the
+  archive by tag/category/ID. Copied, downloaded, and handoff packets omit
+  archived memories while local archive search remains available.
   Directive Ledger creates and updates companion-issued directives. Proof Vault
   stores metadata and uploaded proof files. Council Mode is the handoff hub for
   asking multiple companions the same question while keeping packets separate.
@@ -53,12 +55,18 @@ python Companion_Web.py --host 127.0.0.1 --port 8787
 ## Companion Packet Functions
 
 - Copy Packet copies the current companion's base64 memory packet only. The UI
-  does not display decoded memory content.
+  does not display decoded memory content, and the copied packet excludes
+  archived memories.
+- Download Packet saves the current encoded packet as a `.txt` file with the
+  same archive-free export behavior as Copy Packet.
 - Copy Handoff copies the companion instructions plus the base64 packet for use
   in a companion conversation.
 - Add Memory writes one active memory into the selected companion packet.
 - Apply Commands accepts companion command batches such as `add`, `update`,
   `archive`, `unarchive`, `resave`, `delete`, and `directive`.
+- Directive ledger entries are kept in the issuer companion's active memory
+  until that directive memory is archived, including directives synced during
+  packet export.
 - Archive Search shows archived memory IDs, categories, tags, and archive
   metadata. Use Archive, Unarchive, or Resave to move memories without exposing
   decoded content; then copy the updated base64 packet.

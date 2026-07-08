@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.1.17 - 2026-07-08
+
+### Added
+
+- Added Download Packet for saving the current encoded companion packet as a `.txt` file.
+
+### Changed
+
+- Copied, downloaded, and handoff companion packets now omit archived memories while preserving local archive search.
+- Packet export now backfills missing issuer directive memories and keeps directive entries active until the companion archives that directive memory.
+- Bumped the release file to `Version-0.1.17.md`.
+
 ## 0.1.16 - 2026-07-08
 
 ### Added

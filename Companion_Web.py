@@ -2361,6 +2361,44 @@ def remember_directive_for_issuer(directive):
     return memory_id
 
 
+def entry_has_directive_id(entry, directive_id):
+    directive_tag = str(directive_id or "").strip().lower()
+    if not directive_tag:
+        return False
+    return directive_tag in {str(tag).strip().lower() for tag in entry.get("tags", [])}
+
+
+def directive_memory_exists(payload, directive_id):
+    for collection_name in ("memories", "archive"):
+        for entry in payload.get(collection_name, []):
+            if entry_has_directive_id(entry, directive_id):
+                return True
+    return False
+
+
+def sync_directive_memories_for_export(companion, payload):
+    changed = False
+    for directive in directive_store().get("directives", []):
+        if companion_name_for_issuer(directive.get("issuer")) != companion:
+            continue
+        if directive_memory_exists(payload, directive.get("id")):
+            continue
+        remember_directive_in_payload(payload, directive)
+        changed = True
+    if changed:
+        save_payload(companion, payload)
+    return changed
+
+
+def export_companion_payload(companion, payload):
+    sync_directive_memories_for_export(companion, payload)
+    export_payload = copy.deepcopy(payload)
+    export_payload["archive"] = []
+    export_payload.setdefault("metadata", {})["exported_at"] = now_stamp()
+    export_payload["metadata"]["archive_export_policy"] = "Archived memories are omitted from copied, downloaded, and handoff packets."
+    return export_payload
+
+
 def create_directive(data, remember_issuer=True):
     store = directive_store()
     directive_id = next_id(store, "next_directive_number", "DIR")
@@ -3380,6 +3418,7 @@ INDEX_HTML = r"""<!doctype html>
           <select id="companionSelect"></select>
           <div class="row" style="margin-top: 10px;">
             <button class="inline primary" onclick="copyPacket()">Copy Packet</button>
+            <button class="inline primary" onclick="downloadPacket()">Download Packet</button>
             <button class="inline primary" onclick="copyHandoff()">Copy Handoff</button>
           </div>
           <label>Encoded packet</label>
@@ -4450,6 +4489,25 @@ INDEX_HTML = r"""<!doctype html>
     async function copyPacket() {
       await navigator.clipboard.writeText(document.getElementById('packetBox').value.trim());
       setStatus(`Copied ${selectedCompanion} packet.`);
+    }
+
+    function downloadPacket() {
+      const packet = document.getElementById('packetBox').value.trim();
+      if (!selectedCompanion || !packet) {
+        setStatus('Select a companion before downloading a packet.');
+        return;
+      }
+      const safeCompanion = selectedCompanion.replace(/[^A-Za-z0-9_-]+/g, '_') || 'companion';
+      const blob = new Blob([`${packet}\n`], { type: 'text/plain;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `${safeCompanion}-memory-packet.txt`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      setStatus(`Downloaded ${selectedCompanion} packet.`);
     }
 
     async function copyHandoff() {
@@ -6127,9 +6185,10 @@ class CompanionWebHandler(BaseHTTPRequestHandler):
             return
 
         payload = load_payload(companion)
-        packet = encode_payload(payload).strip()
+        packet_payload = export_companion_payload(companion, payload)
+        packet = encode_payload(packet_payload).strip()
         if action == "packet":
-            self.send_json({"packet": packet, "summary": packet_summary(companion, payload)})
+            self.send_json({"packet": packet, "summary": packet_summary(companion, packet_payload)})
         elif action == "handoff":
             self.send_json({"handoff": HANDOFF_TEMPLATE.format(companion=companion, packet=packet)})
         elif action == "index":

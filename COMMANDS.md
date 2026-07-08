@@ -16,6 +16,10 @@ control_data/users/<profile>/
 
 ## Memory Commands
 
+Copy Packet, Download Packet, and Copy Handoff export only active memories.
+Archived memories stay searchable in the local console but are left out of the
+encoded packet handed to a companion.
+
 ```text
 add category - memory text | weight=3 | tags=tag1,tag2
 update ID -> replacement memory text
@@ -51,6 +55,8 @@ Supported directive fields:
 - `issuer` or `from`
 
 Directive status values used by the ledger are `issued`, `complete`, and `failed`.
+Directive entries are also kept in the issuer companion's active memory until
+that directive memory is archived by command.
 
 ## Daily Check-In Data
 
