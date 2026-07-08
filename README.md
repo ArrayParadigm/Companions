@@ -39,11 +39,13 @@ python Companion_Web.py --host 127.0.0.1 --port 8787
 - Projects: home, vehicle, and tech project todo management with standalone
   project pages and uploaded receipts, pictures, work logs, task files, and
   expense files.
-- Chores: create, complete/reopen, and delete recurring or one-off chores.
+- Chores: create, complete/reopen, and delete one-off, weekly, bi-weekly,
+  or monthly chores with explicit weekday or month-day recurrence.
 - Diet: inventory, generated shopping list, food diary, and CSV import. Shopping
   difference values show only positive need or zero.
-- Calendar: scheduled items for fitness groups, projects, chores, diet,
-  spiritual work, companion directives, or general reminders.
+- Calendar: a month-grid planner with saved events, generated scheduled items,
+  and source links for fitness groups/orders, projects, chores, diet, spiritual
+  work, companion directives, or general reminders.
 - Profile Settings: signed-in display-name and password changes.
 - Admin: Array-only profile approval, activation, access toggles, password
   resets, and session timeout configuration.

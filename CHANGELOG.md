@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.1.16 - 2026-07-08
+
+### Added
+
+- Added a literal month-grid Calendar view with previous/next navigation and generated occurrences alongside saved events.
+- Added Calendar source linking for accessible Fitness groups/orders, Projects, Chores, Diet, Spiritual items, and Array-only Companion Directives; selecting a source can auto-fill the event title.
+- Added structured Chore recurrence for one-off, weekly, bi-weekly, and monthly schedules with weekday or month-day selection.
+
+### Changed
+
+- Calendar dashboard counts now include generated scheduled items, including recurring chores and time-based source items.
+- Bumped the release file to `Version-0.1.16.md`.
+
 ## 0.1.15 - 2026-07-07
 
 ### Added

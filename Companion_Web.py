@@ -1,5 +1,6 @@
 import cgi
 import argparse
+import calendar as calendar_lib
 import base64
 import binascii
 import contextvars
@@ -15,7 +16,7 @@ import secrets
 import shutil
 import time
 import uuid
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, quote, unquote, urlparse
@@ -111,6 +112,17 @@ PROJECT_CATEGORY_DETAILS = {
         "context_empty": "No area, supplies, or recurrence info yet.",
         "description": "Recurring upkeep, cleaning, organizing, errands, and routine home tasks.",
     },
+}
+
+WEEKDAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+CALENDAR_CATEGORY_LABELS = {
+    "fitness": "Fitness",
+    "projects": "Projects",
+    "chores": "Chores",
+    "diet": "Diet",
+    "spiritual": "Spiritual",
+    "directives": "Companion Directives",
+    "general": "General",
 }
 
 
@@ -639,7 +651,108 @@ def reading_progress_store():
 def chore_store():
     ensure_data_files()
     ensure_profile_data_files()
-    return read_json(profile_data_file("chores.json"), {"next_chore_number": 1, "chores": []})
+    store = read_json(profile_data_file("chores.json"), {"next_chore_number": 1, "chores": []})
+    if normalize_chore_store(store):
+        write_json(profile_data_file("chores.json"), store)
+    return store
+
+
+def clean_date(value):
+    text = str(value or "").strip()
+    try:
+        return datetime.strptime(text, "%Y-%m-%d").date()
+    except ValueError:
+        return None
+
+
+def clean_recurrence_type(value):
+    text = str(value or "").strip().lower().replace("_", "-")
+    if text in {"weekly", "week"} or text.startswith("weekly"):
+        return "weekly"
+    if text in {"biweekly", "bi-weekly", "every-other-week", "every other week"} or text.startswith("bi-weekly") or text.startswith("biweekly"):
+        return "biweekly"
+    if text in {"monthly", "month"} or text.startswith("monthly"):
+        return "monthly"
+    return "none"
+
+
+def clean_recurrence_day(recurrence_type, value, due_date=""):
+    text = str(value or "").strip().lower()
+    due = clean_date(due_date)
+    if recurrence_type in {"weekly", "biweekly"}:
+        if text:
+            for index, name in enumerate(WEEKDAY_NAMES):
+                if text in {str(index), name.lower(), name[:3].lower()} or name.lower() in text:
+                    return str(index)
+        if due:
+            return str(due.weekday())
+        return str(datetime.now().weekday())
+    if recurrence_type == "monthly":
+        match = re.search(r"\b([1-9]|[12]\d|3[01])\b", text)
+        day = clean_int(match.group(1) if match else text, default=0, minimum=0, maximum=31)
+        if day:
+            return str(day)
+        if due:
+            return str(due.day)
+        return str(datetime.now().day)
+    return ""
+
+
+def chore_recurrence_label(recurrence_type, recurrence_day):
+    if recurrence_type == "weekly":
+        return f"Weekly on {WEEKDAY_NAMES[clean_int(recurrence_day, default=0, minimum=0, maximum=6)]}"
+    if recurrence_type == "biweekly":
+        return f"Bi-weekly on {WEEKDAY_NAMES[clean_int(recurrence_day, default=0, minimum=0, maximum=6)]}"
+    if recurrence_type == "monthly":
+        return f"Monthly on day {clean_int(recurrence_day, default=1, minimum=1, maximum=31)}"
+    return ""
+
+
+def recurrence_from_data(data, due_date=""):
+    recurrence_text = data.get("recurrence") or ""
+    recurrence_type = clean_recurrence_type(data.get("recurrence_type") or recurrence_text)
+    recurrence_day = clean_recurrence_day(recurrence_type, data.get("recurrence_day") or recurrence_text, due_date)
+    return recurrence_type, recurrence_day, chore_recurrence_label(recurrence_type, recurrence_day)
+
+
+def normalize_chore_store(store):
+    changed = False
+    next_number = clean_int(store.get("next_chore_number"), default=1, minimum=1)
+    used_numbers = []
+    for chore in store.setdefault("chores", []):
+        if not chore.get("id"):
+            chore["id"] = f"CHR-{next_number:04d}"
+            next_number += 1
+            changed = True
+        match = re.match(r"^CHR-(\d+)$", str(chore.get("id", "")))
+        if match:
+            used_numbers.append(int(match.group(1)))
+        for key, fallback in {
+            "title": "Chore",
+            "status": "open",
+            "due_date": "",
+            "notes": "",
+            "created_at": now_stamp(),
+            "updated_at": now_stamp(),
+        }.items():
+            if key not in chore:
+                chore[key] = fallback
+                changed = True
+        recurrence_type, recurrence_day, recurrence_label = recurrence_from_data(chore, chore.get("due_date", ""))
+        if chore.get("recurrence_type") != recurrence_type:
+            chore["recurrence_type"] = recurrence_type
+            changed = True
+        if chore.get("recurrence_day") != recurrence_day:
+            chore["recurrence_day"] = recurrence_day
+            changed = True
+        if chore.get("recurrence") != recurrence_label:
+            chore["recurrence"] = recurrence_label
+            changed = True
+    minimum_next = max(used_numbers or [0]) + 1
+    if clean_int(store.get("next_chore_number"), default=1, minimum=1) < minimum_next:
+        store["next_chore_number"] = minimum_next
+        changed = True
+    return changed
 
 
 def diet_store():
@@ -824,9 +937,187 @@ def calendar_store():
     return read_json(profile_data_file("calendar.json"), default_calendar_store())
 
 
-def calendar_state():
+def calendar_sources(access_map=None, companion_access=False):
+    access_map = access_map or active_access_map()
+    sources = {key: [] for key in CALENDAR_CATEGORY_LABELS}
+    if access_map.get("fitness"):
+        fitness = fitness_state()
+        sources["fitness"].extend({
+            "id": group.get("id", ""),
+            "title": group.get("name", "Workout Group"),
+            "kind": "Workout Group",
+        } for group in fitness.get("exercise_groups", []))
+        sources["fitness"].extend({
+            "id": order.get("id", ""),
+            "title": order.get("title", "Fitness Order"),
+            "kind": "Fitness Order",
+            "date": order.get("due_date", ""),
+        } for order in fitness.get("orders", []))
+    if access_map.get("projects"):
+        sources["projects"].extend({
+            "id": todo.get("id", ""),
+            "title": todo.get("title", "Project Todo"),
+            "kind": PROJECT_CATEGORIES.get(todo.get("category", ""), "Project"),
+            "date": todo.get("due_date", ""),
+        } for todo in project_state().get("todos", []))
+    if access_map.get("chores"):
+        sources["chores"].extend({
+            "id": chore.get("id", ""),
+            "title": chore.get("title", "Chore"),
+            "kind": chore.get("recurrence") or "Chore",
+            "date": chore.get("due_date", ""),
+        } for chore in chore_store().get("chores", []))
+    if access_map.get("diet"):
+        sources["diet"].append({"id": "shopping-list", "title": "Shopping List", "kind": "Diet"})
+        sources["diet"].append({"id": "food-diary", "title": "Food Diary", "kind": "Diet"})
+    if access_map.get("spiritual"):
+        sources["spiritual"].append({"id": "daily-reading", "title": "Daily Reading", "kind": "Spiritual"})
+        sources["spiritual"].append({"id": "extra-reading", "title": "Extra Reading", "kind": "Spiritual"})
+    if companion_access:
+        sources["directives"].extend({
+            "id": directive.get("id", ""),
+            "title": directive.get("title", "Directive"),
+            "kind": f"Directive {directive.get('status', 'issued')}",
+            "date": str(directive.get("due") or directive.get("deadline") or "")[:10],
+        } for directive in directive_store().get("directives", []))
+    sources["general"].append({"id": "manual", "title": "Manual Event", "kind": "General"})
+    return sources
+
+
+def calendar_source_title(category, source_id, sources=None):
+    if not source_id:
+        return ""
+    sources = sources or calendar_sources()
+    for source in sources.get(category, []):
+        if str(source.get("id", "")).lower() == str(source_id).lower():
+            return source.get("title", "")
+    return ""
+
+
+def add_calendar_occurrence(events, when, title, category, source_id="", notes="", prefix="auto"):
+    when = str(when or "")[:10]
+    if not clean_date(when):
+        return
+    events.append({
+        "id": f"{prefix}-{category}-{source_id or title}-{when}",
+        "date": when,
+        "title": title,
+        "category": category,
+        "source_id": source_id,
+        "notes": notes,
+        "generated": True,
+    })
+
+
+def recurring_chore_dates(chore, start_date, end_date):
+    recurrence_type = chore.get("recurrence_type", "none")
+    due = clean_date(chore.get("due_date", ""))
+    if recurrence_type == "none":
+        return [due] if due and start_date <= due <= end_date else []
+    dates = []
+    if recurrence_type in {"weekly", "biweekly"}:
+        weekday = clean_int(chore.get("recurrence_day"), default=0, minimum=0, maximum=6)
+        anchor = due or start_date
+        current = start_date + timedelta(days=(weekday - start_date.weekday()) % 7)
+        if recurrence_type == "biweekly":
+            while current < start_date:
+                current += timedelta(days=14)
+            while ((current - anchor).days % 14) != 0:
+                current += timedelta(days=7)
+        while current <= end_date:
+            if not due or current >= due:
+                dates.append(current)
+            current += timedelta(days=14 if recurrence_type == "biweekly" else 7)
+    elif recurrence_type == "monthly":
+        day = clean_int(chore.get("recurrence_day"), default=1, minimum=1, maximum=31)
+        year, month = start_date.year, start_date.month
+        while date(year, month, 1) <= end_date:
+            last_day = calendar_lib.monthrange(year, month)[1]
+            current = date(year, month, min(day, last_day))
+            if start_date <= current <= end_date and (not due or current >= due):
+                dates.append(current)
+            if month == 12:
+                year += 1
+                month = 1
+            else:
+                month += 1
+    return dates
+
+
+def generated_calendar_events(access_map=None, companion_access=False):
+    access_map = access_map or active_access_map()
+    today = datetime.now().date()
+    start_date = today - timedelta(days=90)
+    end_date = today + timedelta(days=365)
+    events = []
+    if access_map.get("fitness"):
+        for order in fitness_state().get("orders", []):
+            add_calendar_occurrence(
+                events,
+                str(order.get("due_date") or "")[:10],
+                f"Fitness: {order.get('title', 'Order')}",
+                "fitness",
+                order.get("id", ""),
+                order.get("details", ""),
+                "fit",
+            )
+    if access_map.get("projects"):
+        for todo in project_state().get("todos", []):
+            add_calendar_occurrence(
+                events,
+                str(todo.get("due_date") or "")[:10],
+                f"Project: {todo.get('title', 'Todo')}",
+                "projects",
+                todo.get("id", ""),
+                todo.get("next_step", ""),
+                "project",
+            )
+    if access_map.get("chores"):
+        for chore in chore_store().get("chores", []):
+            if str(chore.get("status", "open")).lower() == "done":
+                continue
+            for chore_date in recurring_chore_dates(chore, start_date, end_date):
+                add_calendar_occurrence(
+                    events,
+                    chore_date.isoformat(),
+                    f"Chore: {chore.get('title', 'Chore')}",
+                    "chores",
+                    chore.get("id", ""),
+                    chore.get("recurrence") or chore.get("notes", ""),
+                    "chore",
+                )
+    if access_map.get("diet"):
+        for item in diet_state().get("shopping_list", []):
+            add_calendar_occurrence(
+                events,
+                today.isoformat(),
+                f"Shopping: {item.get('name', 'Diet item')}",
+                "diet",
+                "shopping-list",
+                f"Need {item.get('needed_units', 0)} {item.get('unit_label', '')}",
+                "diet",
+            )
+    if access_map.get("spiritual"):
+        add_calendar_occurrence(events, today.isoformat(), "Daily Reading", "spiritual", "daily-reading", "", "spiritual")
+    if companion_access:
+        for directive in directive_store().get("directives", []):
+            due = str(directive.get("due") or directive.get("deadline") or "")[:10]
+            add_calendar_occurrence(events, due, f"Directive: {directive.get('title', 'Directive')}", "directives", directive.get("id", ""), directive.get("details", ""), "directive")
+    return events
+
+
+def calendar_state(access_map=None, companion_access=False):
     store = calendar_store()
-    return {"events": store.get("events", [])[-100:]}
+    explicit_events = store.get("events", [])[-200:]
+    generated = generated_calendar_events(access_map, companion_access)
+    all_events = sorted(explicit_events + generated, key=lambda item: (str(item.get("date", "")), str(item.get("title", ""))))
+    return {
+        "events": explicit_events,
+        "generated_events": generated,
+        "all_events": all_events,
+        "sources": calendar_sources(access_map, companion_access),
+        "categories": CALENDAR_CATEGORY_LABELS,
+    }
 
 
 def next_id(store, counter_name, prefix):
@@ -1416,14 +1707,18 @@ def update_fitness_challenge(challenge_id, data):
     raise ValueError(f"Fitness challenge not found: {challenge_id}")
 
 
-def create_calendar_event(data):
+def create_calendar_event(data, access_map=None, companion_access=False):
     store = calendar_store()
+    category = str(data.get("category") or "general").strip().lower() or "general"
+    source_id = str(data.get("source_id") or "").strip()
+    sources = calendar_sources(access_map, companion_access)
+    title = str(data.get("title") or "").strip() or calendar_source_title(category, source_id, sources)
     event = {
         "id": next_id(store, "next_event_number", "CAL"),
         "date": str(data.get("date") or datetime.now().strftime("%Y-%m-%d")).strip(),
-        "title": str(data.get("title") or "").strip(),
-        "category": str(data.get("category") or "general").strip().lower() or "general",
-        "source_id": str(data.get("source_id") or "").strip(),
+        "title": title,
+        "category": category if category in CALENDAR_CATEGORY_LABELS else "general",
+        "source_id": source_id,
         "notes": str(data.get("notes") or "").strip(),
         "created_at": now_stamp(),
         "updated_at": now_stamp(),
@@ -1465,12 +1760,16 @@ def delete_calendar_event(event_id):
 def create_chore(data):
     store = chore_store()
     chore_id = next_id(store, "next_chore_number", "CHR")
+    due_date = str(data.get("due_date") or "").strip()
+    recurrence_type, recurrence_day, recurrence_label = recurrence_from_data(data, due_date)
     chore = {
         "id": chore_id,
         "title": str(data.get("title") or "").strip(),
         "status": str(data.get("status") or "open").strip() or "open",
-        "due_date": str(data.get("due_date") or "").strip(),
-        "recurrence": str(data.get("recurrence") or "").strip(),
+        "due_date": due_date,
+        "recurrence_type": recurrence_type,
+        "recurrence_day": recurrence_day,
+        "recurrence": recurrence_label,
         "notes": str(data.get("notes") or "").strip(),
         "created_at": now_stamp(),
         "updated_at": now_stamp(),
@@ -1486,9 +1785,14 @@ def update_chore(chore_id, data):
     store = chore_store()
     for chore in store.get("chores", []):
         if chore.get("id", "").lower() == chore_id.lower():
-            for key in ("title", "status", "due_date", "recurrence", "notes"):
+            for key in ("title", "status", "due_date", "notes"):
                 if key in data:
                     chore[key] = str(data[key]).strip()
+            if any(key in data for key in ("recurrence", "recurrence_type", "recurrence_day", "due_date")):
+                recurrence_type, recurrence_day, recurrence_label = recurrence_from_data(data, chore.get("due_date", ""))
+                chore["recurrence_type"] = recurrence_type
+                chore["recurrence_day"] = recurrence_day
+                chore["recurrence"] = recurrence_label
             chore["updated_at"] = now_stamp()
             write_json(profile_data_file("chores.json"), store)
             return chore
@@ -2649,7 +2953,7 @@ def app_state():
         "chores": chore_store().get("chores", []) if access_map.get("chores") else [],
         "diet": diet_state() if access_map.get("diet") else {"summary": {}, "inventory": [], "shopping_list": [], "food_diary": []},
         "fitness": fitness_state() if access_map.get("fitness") else {},
-        "calendar": calendar_state(),
+        "calendar": calendar_state(access_map, companion_access),
         "integrity": integrity_report() if companion_access else {"ok": True, "issues": [], "checked_at": now_stamp()},
     }
 
@@ -2831,6 +3135,56 @@ INDEX_HTML = r"""<!doctype html>
     .diet-view.active { display: block; }
     .fitness-view { display: none; }
     .fitness-view.active { display: block; }
+    .calendar-toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+    .calendar-grid {
+      display: grid;
+      grid-template-columns: repeat(7, minmax(0, 1fr));
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      overflow: hidden;
+      background: #10151a;
+    }
+    .calendar-heading,
+    .calendar-day {
+      min-height: 92px;
+      border-right: 1px solid var(--line);
+      border-bottom: 1px solid var(--line);
+      padding: 6px;
+    }
+    .calendar-heading {
+      min-height: auto;
+      background: var(--panel-2);
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+    .calendar-day:nth-child(7n),
+    .calendar-heading:nth-child(7n) { border-right: 0; }
+    .calendar-date {
+      display: block;
+      color: var(--muted);
+      font-size: 12px;
+      margin-bottom: 5px;
+    }
+    .calendar-day.outside { opacity: 0.45; }
+    .calendar-event {
+      display: block;
+      border-left: 3px solid var(--accent);
+      background: rgba(77, 163, 255, 0.09);
+      border-radius: 4px;
+      padding: 3px 5px;
+      margin-top: 4px;
+      font-size: 12px;
+      line-height: 1.25;
+    }
+    .calendar-event.generated { border-left-color: #8fd694; }
     .detail-box {
       border: 1px solid var(--line);
       border-radius: 6px;
@@ -3494,7 +3848,28 @@ INDEX_HTML = r"""<!doctype html>
             </div>
             <div>
               <label>Recurrence</label>
-              <input id="choreRecurrence" placeholder="daily, weekly, monthly">
+              <select id="choreRecurrenceType">
+                <option value="none">One-off</option>
+                <option value="weekly">Weekly</option>
+                <option value="biweekly">Bi-weekly</option>
+                <option value="monthly">Monthly</option>
+              </select>
+            </div>
+            <div>
+              <label>Weekday</label>
+              <select id="choreRecurrenceWeekday">
+                <option value="0">Monday</option>
+                <option value="1">Tuesday</option>
+                <option value="2">Wednesday</option>
+                <option value="3">Thursday</option>
+                <option value="4">Friday</option>
+                <option value="5">Saturday</option>
+                <option value="6">Sunday</option>
+              </select>
+            </div>
+            <div>
+              <label>Month day</label>
+              <input id="choreRecurrenceMonthDay" type="number" min="1" max="31" value="1">
             </div>
           </div>
           <label>Notes</label>
@@ -3572,7 +3947,7 @@ INDEX_HTML = r"""<!doctype html>
               <option value="directives">Companion Directives</option>
               <option value="general">General</option>
             </select></div>
-            <div><label>Source ID</label><input id="calendarSourceId" placeholder="optional"></div>
+            <div><label>Source</label><select id="calendarSourceId"></select></div>
           </div>
           <label>Title</label>
           <input id="calendarTitle">
@@ -3580,8 +3955,16 @@ INDEX_HTML = r"""<!doctype html>
           <textarea id="calendarNotes"></textarea>
           <button class="inline primary" onclick="createCalendarEvent()">Add Event</button>
         </div>
-        <div class="panel">
-          <h2>Scheduled Items</h2>
+        <div class="panel full">
+          <div class="calendar-toolbar">
+            <button class="inline" onclick="shiftCalendarMonth(-1)">Previous</button>
+            <h2 id="calendarMonthLabel">Calendar</h2>
+            <button class="inline" onclick="shiftCalendarMonth(1)">Next</button>
+          </div>
+          <div id="calendarGrid"></div>
+        </div>
+        <div class="panel full">
+          <h2>Saved Items</h2>
           <div id="calendarList"></div>
         </div>
       </div>
@@ -3654,6 +4037,7 @@ INDEX_HTML = r"""<!doctype html>
     let selectedProjectTodoId = null;
     let selectedDietTab = 'summary';
     let selectedFitnessTab = 'summary';
+    let selectedCalendarMonth = new Date();
 
     const nativeFetch = window.fetch.bind(window);
     function activeProfileName() {
@@ -3848,10 +4232,17 @@ INDEX_HTML = r"""<!doctype html>
     });
 
     document.getElementById('extraBookSelect').addEventListener('change', renderExtraChapterSelect);
+    document.getElementById('choreRecurrenceType').addEventListener('change', renderChoreRecurrenceControls);
+    document.getElementById('calendarCategory').addEventListener('change', () => {
+      renderCalendarSourceOptions();
+      fillCalendarTitleFromSource();
+    });
+    document.getElementById('calendarSourceId').addEventListener('change', fillCalendarTitleFromSource);
 
     document.getElementById('checkinDate').value = new Date().toISOString().slice(0, 10);
     document.getElementById('foodDate').value = new Date().toISOString().slice(0, 10);
     document.getElementById('calendarDate').value = new Date().toISOString().slice(0, 10);
+    renderChoreRecurrenceControls();
 
     document.getElementById('proofForm').addEventListener('submit', async event => {
       event.preventDefault();
@@ -4044,7 +4435,7 @@ INDEX_HTML = r"""<!doctype html>
       const chores = state.chores || [];
       document.getElementById('dashChores').textContent = chores.filter(chore => String(chore.status || 'open').toLowerCase() !== 'done').length;
       document.getElementById('dashChoresDetail').textContent = `${chores.length} chore(s) tracked`;
-      const events = ((state.calendar || {}).events || []);
+      const events = ((state.calendar || {}).all_events || (state.calendar || {}).events || []);
       document.getElementById('dashCalendar').textContent = events.length;
       document.getElementById('dashCalendarDetail').textContent = events.slice(-1)[0] ? `${events.slice(-1)[0].date}: ${events.slice(-1)[0].title}` : 'No scheduled items.';
       if (companionAccess) {
@@ -4474,16 +4865,25 @@ INDEX_HTML = r"""<!doctype html>
 
     function renderChores() {
       const chores = state.chores || [];
+      renderChoreRecurrenceControls();
       document.getElementById('choreList').innerHTML = chores.length
-        ? chores.slice().reverse().map(chore => `<div class="todo-row"><strong>${escapeHtml(chore.title)}</strong><br><span class="muted">${escapeHtml(chore.status || 'open')} | due ${escapeHtml(chore.due_date || '')} | ${escapeHtml(chore.recurrence || '')}</span><br><span>${escapeHtml(chore.notes || '')}</span><br><button class="inline" onclick="setChoreStatus('${escapeJs(chore.id)}','done')">Done</button> <button class="inline" onclick="setChoreStatus('${escapeJs(chore.id)}','open')">Reopen</button> <button class="inline" onclick="deleteChore('${escapeJs(chore.id)}')">Delete</button></div>`).join('')
+        ? chores.slice().reverse().map(chore => `<div class="todo-row"><strong>${escapeHtml(chore.title)}</strong><br><span class="muted">${escapeHtml(chore.status || 'open')} | due ${escapeHtml(chore.due_date || '')} | ${escapeHtml(chore.recurrence || 'one-off')}</span><br><span>${escapeHtml(chore.notes || '')}</span><br><button class="inline" onclick="setChoreStatus('${escapeJs(chore.id)}','done')">Done</button> <button class="inline" onclick="setChoreStatus('${escapeJs(chore.id)}','open')">Reopen</button> <button class="inline" onclick="deleteChore('${escapeJs(chore.id)}')">Delete</button></div>`).join('')
         : '<p class="muted">No chores yet.</p>';
     }
 
+    function renderChoreRecurrenceControls() {
+      const type = document.getElementById('choreRecurrenceType').value || 'none';
+      document.getElementById('choreRecurrenceWeekday').closest('div').style.display = ['weekly', 'biweekly'].includes(type) ? '' : 'none';
+      document.getElementById('choreRecurrenceMonthDay').closest('div').style.display = type === 'monthly' ? '' : 'none';
+    }
+
     async function createChore() {
+      const recurrenceType = document.getElementById('choreRecurrenceType').value;
       const body = {
         title: document.getElementById('choreTitle').value,
         due_date: document.getElementById('choreDueDate').value,
-        recurrence: document.getElementById('choreRecurrence').value,
+        recurrence_type: recurrenceType,
+        recurrence_day: recurrenceType === 'monthly' ? document.getElementById('choreRecurrenceMonthDay').value : document.getElementById('choreRecurrenceWeekday').value,
         notes: document.getElementById('choreNotes').value,
       };
       const res = await fetch('/api/chores', {
@@ -4492,9 +4892,11 @@ INDEX_HTML = r"""<!doctype html>
         body: JSON.stringify(body)
       });
       await handleResponse(res);
-      for (const id of ['choreTitle', 'choreDueDate', 'choreRecurrence', 'choreNotes']) {
+      for (const id of ['choreTitle', 'choreDueDate', 'choreNotes']) {
         document.getElementById(id).value = '';
       }
+      document.getElementById('choreRecurrenceType').value = 'none';
+      renderChoreRecurrenceControls();
       await loadState();
     }
 
@@ -4654,10 +5056,73 @@ INDEX_HTML = r"""<!doctype html>
     }
 
     function renderCalendar() {
-      const events = ((state.calendar || {}).events || []).slice().sort((a, b) => String(a.date || '').localeCompare(String(b.date || '')));
+      renderCalendarSourceOptions();
+      const calendar = state.calendar || {};
+      const allEvents = (calendar.all_events || calendar.events || []).slice().sort((a, b) => String(a.date || '').localeCompare(String(b.date || '')));
+      renderCalendarGrid(allEvents);
+      const events = (calendar.events || []).slice().sort((a, b) => String(a.date || '').localeCompare(String(b.date || '')));
       document.getElementById('calendarList').innerHTML = events.length
         ? `<div class="scrollbox"><table><thead><tr><th>Date</th><th>Category</th><th>Title</th><th>Source</th><th>Notes</th><th>Actions</th></tr></thead><tbody>${events.map(event => `<tr><td>${escapeHtml(event.date || '')}</td><td>${escapeHtml(event.category || '')}</td><td>${escapeHtml(event.title || '')}</td><td>${escapeHtml(event.source_id || '')}</td><td>${escapeHtml(event.notes || '')}</td><td><button class="inline" onclick="editCalendarEvent('${escapeJs(event.id)}')">Edit</button> <button class="inline danger" onclick="deleteCalendarEvent('${escapeJs(event.id)}')">Delete</button></td></tr>`).join('')}</tbody></table></div>`
         : '<p class="muted">No scheduled items.</p>';
+    }
+
+    function renderCalendarSourceOptions() {
+      const calendar = state.calendar || {};
+      const category = document.getElementById('calendarCategory').value || 'general';
+      const sources = (calendar.sources || {})[category] || [];
+      const current = document.getElementById('calendarSourceId').value || '';
+      document.getElementById('calendarSourceId').innerHTML = `<option value="">No linked source</option>${sources.map(source => `<option value="${escapeHtml(source.id || '')}">${escapeHtml(source.title || source.id || '')}${source.kind ? ` (${escapeHtml(source.kind)})` : ''}</option>`).join('')}`;
+      if (sources.some(source => source.id === current)) {
+        document.getElementById('calendarSourceId').value = current;
+      }
+    }
+
+    function fillCalendarTitleFromSource() {
+      const title = document.getElementById('calendarTitle');
+      if (title.value.trim()) return;
+      const select = document.getElementById('calendarSourceId');
+      const option = select.options[select.selectedIndex];
+      if (!option || !select.value) return;
+      title.value = option.textContent.replace(/\s+\([^)]*\)$/, '');
+    }
+
+    function formatDateKey(date) {
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const day = String(date.getDate()).padStart(2, '0');
+      return `${date.getFullYear()}-${month}-${day}`;
+    }
+
+    function renderCalendarGrid(events) {
+      const year = selectedCalendarMonth.getFullYear();
+      const month = selectedCalendarMonth.getMonth();
+      document.getElementById('calendarMonthLabel').textContent = selectedCalendarMonth.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+      const first = new Date(year, month, 1);
+      const start = new Date(first);
+      start.setDate(1 - ((first.getDay() + 6) % 7));
+      const byDate = events.reduce((groups, event) => {
+        const key = String(event.date || '').slice(0, 10);
+        if (!key) return groups;
+        groups[key] = groups[key] || [];
+        groups[key].push(event);
+        return groups;
+      }, {});
+      const headings = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(day => `<div class="calendar-heading">${day}</div>`).join('');
+      const cells = [];
+      for (let index = 0; index < 42; index += 1) {
+        const current = new Date(start);
+        current.setDate(start.getDate() + index);
+        const key = formatDateKey(current);
+        const dayEvents = byDate[key] || [];
+        const visible = dayEvents.slice(0, 4).map(event => `<span class="calendar-event ${event.generated ? 'generated' : ''}" title="${escapeHtml(event.notes || '')}">${escapeHtml(event.title || '')}</span>`).join('');
+        const more = dayEvents.length > 4 ? `<span class="muted">+${dayEvents.length - 4} more</span>` : '';
+        cells.push(`<div class="calendar-day ${current.getMonth() === month ? '' : 'outside'}"><span class="calendar-date">${current.getDate()}</span>${visible}${more}</div>`);
+      }
+      document.getElementById('calendarGrid').innerHTML = `<div class="calendar-grid">${headings}${cells.join('')}</div>`;
+    }
+
+    function shiftCalendarMonth(amount) {
+      selectedCalendarMonth = new Date(selectedCalendarMonth.getFullYear(), selectedCalendarMonth.getMonth() + amount, 1);
+      renderCalendar();
     }
 
     async function createCalendarEvent() {
@@ -4674,6 +5139,7 @@ INDEX_HTML = r"""<!doctype html>
       });
       await handleResponse(res);
       for (const id of ['calendarSourceId', 'calendarTitle', 'calendarNotes']) document.getElementById(id).value = '';
+      renderCalendarSourceOptions();
       await loadState();
     }
 
@@ -5446,8 +5912,10 @@ class CompanionWebHandler(BaseHTTPRequestHandler):
                     todo = create_project_todo(self.read_json_body())
                     self.send_json({"message": f"Created {todo['id']}.", "todo": todo})
                 elif path == "/api/calendar":
-                    event = create_calendar_event(self.read_json_body())
-                    self.send_json({"message": f"Created {event['id']}.", "event": event, "calendar": calendar_state()})
+                    access_map = active_access_map()
+                    companion_access = active_has_companion_access()
+                    event = create_calendar_event(self.read_json_body(), access_map, companion_access)
+                    self.send_json({"message": f"Created {event['id']}.", "event": event, "calendar": calendar_state(access_map, companion_access)})
                 elif path == "/api/reading-progress":
                     if not self.require_category_access("spiritual"):
                         return
@@ -5576,7 +6044,9 @@ class CompanionWebHandler(BaseHTTPRequestHandler):
             elif path.startswith("/api/calendar/"):
                 event_id = unquote(path.rsplit("/", 1)[1])
                 event = update_calendar_event(event_id, self.read_json_body())
-                self.send_json({"message": f"Updated {event['id']}.", "event": event, "calendar": calendar_state()})
+                access_map = active_access_map()
+                companion_access = active_has_companion_access()
+                self.send_json({"message": f"Updated {event['id']}.", "event": event, "calendar": calendar_state(access_map, companion_access)})
             else:
                 self.send_error_json(404, "Not found.")
         except Exception as exc:
@@ -5634,7 +6104,9 @@ class CompanionWebHandler(BaseHTTPRequestHandler):
             elif path.startswith("/api/calendar/"):
                 event_id = unquote(path.rsplit("/", 1)[1])
                 event = delete_calendar_event(event_id)
-                self.send_json({"message": f"Deleted {event['id']}.", "event": event, "calendar": calendar_state()})
+                access_map = active_access_map()
+                companion_access = active_has_companion_access()
+                self.send_json({"message": f"Deleted {event['id']}.", "event": event, "calendar": calendar_state(access_map, companion_access)})
             else:
                 self.send_error_json(404, "Not found.")
         except Exception as exc:

@@ -99,6 +99,10 @@ Chores are stored in:
 control_data/chores.json
 ```
 
+Chores support one-off, weekly, bi-weekly, and monthly recurrence. Weekly and
+bi-weekly chores store a weekday; monthly chores store a day of the month. The
+Calendar grid renders generated chore occurrences from that structured schedule.
+
 Diet inventory and food diary entries are stored in:
 
 ```text
@@ -109,6 +113,19 @@ Diet inventory tracks on-hand, par, reorder threshold, container quantity, and
 cost per container. The shopping list is calculated from inventory items at or
 below their reorder threshold. Inventory rows can be deleted when an item was
 entered incorrectly.
+
+## Calendar Data
+
+Saved calendar events are stored in:
+
+```text
+control_data/calendar.json
+```
+
+The Calendar also renders generated, non-editable items from accessible source
+data such as Fitness groups/orders, Project due dates, Chore due dates and
+recurrences, Diet shopping needs, Spiritual daily reading, and Array-only
+Directive due dates.
 
 ## Fitness Data
 

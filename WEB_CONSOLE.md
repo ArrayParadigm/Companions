@@ -54,8 +54,14 @@ http://127.0.0.1:8787
   Strength, Progress, Challenges, Body Metrics, and History.
 - Spiritual owns daily reading, extra reading, persistent Bible chapter progress, and prayer categories for gratitude, requests, repentance, service, and closeness.
 - Projects has Home Maintenance, Vehicle Maintenance, and Tech Projects tabs plus a category selector; Chores is a project category, not a tab.
-- Chores is a main navigation category with its own chore list.
+- Chores is a main navigation category with its own chore list and structured
+  one-off, weekly, bi-weekly, or monthly recurrence controls.
 - Diet is a main navigation category with Summary, Inventory, Shopping List, and Food Diary tabs.
+- Calendar is a literal month grid. Saved events can link to accessible source
+  items such as Fitness workout groups/orders, Projects, Chores, Diet,
+  Spiritual items, and Array-only Companion Directives; generated source items
+  and recurring chores appear on the grid without becoming editable saved
+  events.
 - Diet inventory tracks on-hand, par, reorder thresholds, container quantity,
   and cost per container; items can be deleted after confirmation, and the
   shopping list is generated from the remaining low inventory.

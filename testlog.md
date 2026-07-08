@@ -1,5 +1,18 @@
 # Test Log
 
+## 2026-07-08 - 0.1.16 TODO Sprint
+
+| Severity | Area | Result | Notes |
+| --- | --- | --- | --- |
+| Info | Static compile | Pass | `python -m py_compile Companion_Web.py Memory_Manager.py` passed. |
+| Info | Compileall | Pass | `python -m compileall -q Companion_Web.py Memory_Manager.py` passed. |
+| Info | JSON validation | Pass | `companion-files.json`, `control_data/*.json`, and `tracker_data/*.json` parse successfully. |
+| Info | Functional smoke | Pass | Temporary isolated data verified Calendar source linking from a Fitness group, auto-filled calendar event titles, weekly chores, bi-weekly chores, monthly chores, generated calendar occurrences, and source lists. |
+| Info | Copyover check | Pass | `cmd /c copyover.bat --check` detected `D:\000_Files\002_Projects\EVE\MS\Companions-1`, version `0.1.16`, and copied no files. |
+| Info | Static marker gate | Pass | Static search confirmed literal calendar grid, generated events, Calendar source selector, chore recurrence controls, bi-weekly wording, grid renderer, and backend calendar source generation are present. |
+| Info | BUGS file | Not found | No `BUGS.md` or `BUGS` file exists in this repo during the 0.1.16 TODO sprint pass. |
+| Info | Whitespace gate | Pass | `git diff --check` reported no whitespace errors; Git only warned that edited text files will be normalized from LF to CRLF when touched. |
+
 ## 2026-07-07 - 0.1.15 TODO Sprint
 
 | Severity | Area | Result | Notes |
