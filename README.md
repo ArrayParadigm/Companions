@@ -27,13 +27,16 @@ python Companion_Web.py --host 127.0.0.1 --port 8787
   check-in. If a session times out from inactivity, protected pages hide and the
   console returns to Dashboard login.
 - Companion: Array-only packet management. The Memory tab copies opaque packets
-  and handoffs, downloads packet text files, adds memories, applies command
-  batches, opens the New Companion dialog from the companion tab bar, shows an
+  and handoffs, downloads packet text files, adds memories, previews/applies
+  command batch counts without showing memory text, opens the New Companion
+  dialog from the companion tab bar, shows an
   ID-only memory index, and searches the archive by tag/category/ID. Copied,
   downloaded, and handoff packets omit archived memories while local archive
   search remains available. Directive Ledger creates and updates
-  companion-issued directives and exports active/recent directives as a base64
-  packet. Proof Vault stores metadata and uploaded proof files. Council Mode
+  companion-issued directives with type/tags/timezone metadata, exports
+  active/recent directives as a base64 packet, and previews/imports directive
+  export packets without overwriting existing directives. Proof Vault stores
+  metadata and uploaded proof files. Council Mode
   copies base64 question packets per companion, imports their answers, and
   copies a consolidated answer with attribution.
 - Daily Check-ins: summary, check-in form, and journal entry/readback controls.
@@ -42,9 +45,9 @@ python Companion_Web.py --host 127.0.0.1 --port 8787
   logs, progress notes, challenges, body metrics, and history.
 - Spiritual: summary, daily KJV reading, extra Bible chapter reading, and prayer
   category review.
-- Projects: home, vehicle, and tech project todo management with standalone
-  project pages and uploaded receipts, pictures, work logs, task files, and
-  expense files.
+- Projects: home, vehicle, and tech project todo management with status/sort
+  filters, standalone project pages, and uploaded receipts, pictures, work
+  logs, task files, and expense files.
 - Chores: create, complete/reopen, and delete one-off, weekly, bi-weekly,
   or monthly chores with explicit weekday or month-day recurrence.
 - Diet: inventory, generated shopping list, food diary, and CSV import. Shopping
@@ -52,8 +55,9 @@ python Companion_Web.py --host 127.0.0.1 --port 8787
 - Calendar: a month-grid planner with saved events, generated scheduled items,
   and source links for fitness groups/orders, projects, chores, diet food diary,
   spiritual work, companion directives, or general reminders. Shopping-list
-  needs do not generate calendar items. Double-click a calendar item to open its
-  saved event or source surface.
+  needs do not generate calendar items. Generated labels include category,
+  title, and source ID; double-click a calendar item to open its saved event or
+  source surface.
 - Profile Settings: signed-in display-name and password changes.
 - Admin: Array-only profile approval, activation, access toggles, password
   resets, and session timeout configuration.
@@ -77,10 +81,15 @@ and reload Apache.
   in a companion conversation.
 - Add Memory writes one active memory into the selected companion packet.
 - Apply Commands accepts companion command batches such as `add`, `update`,
-  `archive`, `unarchive`, `resave`, `delete`, and `directive`.
+  `archive`, `unarchive`, `resave`, `delete`, and `directive`. Preview Commands
+  reports operation counts before apply and does not expose decoded memory text.
 - Directive ledger entries are kept in the issuer companion's active memory
   until that directive memory is archived, including directives synced during
   packet export.
+- Directive Export copies active and recent directives as
+  `companion-directive-export/v1` base64 JSON. The import tool previews
+  directive IDs/titles/statuses only, skips duplicates, merges without deleting
+  existing directives, and creates a backup before writing.
 - Archive Search shows archived memory IDs, categories, tags, and archive
   metadata. Use Archive, Unarchive, or Resave to move memories without exposing
   decoded content; then copy the updated base64 packet.

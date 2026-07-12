@@ -1,6 +1,9 @@
 # Companion Console Commands
 
-Command batches can be pasted into the Memory tab. One command goes on each line.
+Command batches can be pasted into the Memory tab. One command goes on each
+line. Base64-encoded UTF-8 command batches are preferred for companion handoff;
+plaintext still works when explicitly requested. Use Preview Commands before
+Apply Commands to see operation counts without exposing decoded memory text.
 
 ## Profiles
 
@@ -43,6 +46,7 @@ delete ID
 ```text
 directive - task title | priority=3 | due=YYYY-MM-DD HH:MM | proof=true | details=task details
 task - task title | issuer=Veyra | priority=5 | deadline=2026-07-05 | evidence=yes | description=what to do
+directive - task title | type=project | tags=repo,deploy | timezone=America/Chicago | due=2026-07-12 15:00
 ```
 
 Supported directive fields:
@@ -51,12 +55,22 @@ Supported directive fields:
 - `details`, `detail`, or `description`
 - `priority` from `1` to `5`
 - `due` or `deadline`
+- `timezone` or `tz`, defaulting to `America/Chicago`
+- `type`, one of `health`, `work`, `family`, `fitness`, `princess_campaign`,
+  `tiny_tyrant`, `project`, `spiritual`, or `manual`
+- `tags`, comma-separated
 - `proof`, `proof_required`, or `evidence`
 - `issuer` or `from`
 
 Directive status values used by the ledger are `issued`, `complete`, and `failed`.
 Directive entries are also kept in the issuer companion's active memory until
 that directive memory is archived by command.
+
+Directive Export creates `companion-directive-export/v1` base64 JSON containing
+active directives plus recent completed/failed directives. Directive Import
+previews IDs, titles, statuses, due values, and types only; details stay out of
+the preview. Import merges non-duplicates, skips matching
+issuer/title/details/due/status records, and creates a backup before writing.
 
 ## Daily Check-In Data
 
@@ -132,7 +146,8 @@ The Calendar also renders generated, non-editable items from accessible source
 data such as Fitness groups/orders, Project due dates, Chore due dates and
 recurrences, Spiritual daily reading, and Array-only Directive due dates. Diet
 shopping needs are intentionally excluded because there is no set shopping day.
-Double-click a calendar item to open its saved event or relevant source surface.
+Generated labels show category, title, and source ID. Double-click a calendar
+item to open its saved event or relevant source surface.
 
 ## Fitness Data
 

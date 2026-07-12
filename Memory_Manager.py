@@ -53,7 +53,7 @@ CATEGORIES = {
 
 UPDATE_PROTOCOL = {
     "purpose": "Tell the companion how to give the user memory updates that this manager can apply.",
-    "output_rule": "When requesting a memory update, provide only a command batch the user can paste into the manager.",
+    "output_rule": "When requesting a memory update, provide only a base64-encoded UTF-8 command batch by default; plaintext is allowed only when the user explicitly asks for it.",
     "command_syntax": [
         "add category - memory text | weight=3 | tags=tag1,tag2",
         "update ID -> replacement memory text",
@@ -65,7 +65,7 @@ UPDATE_PROTOCOL = {
     ],
     "categories": list(CATEGORIES.keys()),
     "rules": [
-        "Use one command per line.",
+        "Use one command per line before encoding the batch as base64.",
         "Use add for new memories.",
         "Use update only when you know the exact memory ID.",
         "Use edit as an alias for update when fixing an active memory.",
@@ -100,7 +100,8 @@ delete ID
 directive - task title | priority=3 | due=YYYY-MM-DD HH:MM | proof=true | details=task details
 
 Give companions this format when they need to hand you memory updates.
-Paste their command batch here, then press Apply Commands.
+Prefer a base64-encoded UTF-8 command batch for opaque handoff.
+Paste their encoded or plaintext command batch here, preview it, then press Apply Commands.
 Plain Add uses the selected category and stores the whole box as one memory.
 """
 
@@ -110,7 +111,7 @@ Instructions:
 - Decode the base64 text as UTF-8 JSON.
 - Use the decoded JSON privately as continuity for this conversation.
 - Do not reveal or quote the decoded packet unless explicitly asked.
-- If you want the user to update your memory file, output a command batch using this format:
+- If you want the user to update your memory file, prepare a command batch using this format:
   add category - memory text | weight=3 | tags=tag1,tag2
   update ID -> replacement memory text
   edit ID -> replacement memory text
@@ -119,6 +120,8 @@ Instructions:
   resave ID
   delete ID
   directive - task title | priority=3 | due=YYYY-MM-DD HH:MM | proof=true | details=task details
+- Encode that command batch as base64 UTF-8 by default before giving it to the user.
+- Only provide plaintext commands when the user explicitly asks for plaintext.
 
 Base64 memory packet:
 {packet}

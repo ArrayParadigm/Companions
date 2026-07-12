@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.1.18.0 - 2026-07-12
+
+### Added
+
+- Added metadata-only Apply Commands preview counts before applying memory/directive command batches.
+- Added Directive Export preview/import for `companion-directive-export/v1` packets with duplicate skipping and directive-file backups before merge.
+- Added directive type, tags, and `America/Chicago` default timezone metadata without changing existing `due_at` strings.
+- Added Projects status filtering and sorting by updated time, due date, title, status, and category.
+
+### Changed
+
+- Standardized empty-state wording, action button verbs, table overflow handling, mobile wrapping, focus states, and clipboard success/failure feedback across the console.
+- Updated companion handoff/help text so memory update requests prefer base64-encoded command batches by default while still accepting plaintext.
+- Improved generated Calendar item labels to show category, title, and source ID, with double-click source navigation preserved.
+- Bumped the release file to `Version-0.1.18.0.md`.
+
+### Fixed
+
+- Normalized directive due display for empty, date-only, time-only, datetime, and manual due strings.
+- Made Directive Ledger rows more readable for long details while keeping title, status, priority, due, proof, type, and tags visible.
+- Added duplicate detection before directive create/import so matching issuer/title/details/due/status entries are warned or skipped instead of duplicated.
+- Kept directive import/export merge behavior non-destructive so active and recent directives are preserved unless explicitly updated elsewhere.
+
 ## 0.1.17.3 - 2026-07-12
 
 ### Fixed

@@ -1,5 +1,18 @@
 # Test Log
 
+## 2026-07-12 - 0.1.18.0 TODO Sprint
+
+| Severity | Area | Result | Notes |
+| --- | --- | --- | --- |
+| Info | Static compile | Pass | `python -m py_compile Companion_Web.py Memory_Manager.py` passed. |
+| Info | Compileall | Pass | `python -m compileall -q Companion_Web.py Memory_Manager.py` passed. |
+| Info | Isolated directive/import smoke | Pass | Temporary control data verified directive type/tags/default `America/Chicago` timezone, due display normalization, duplicate rejection, directive export preview, import merge, duplicate import skip, next-ID counter refresh, and backup naming. |
+| Info | Command preview privacy | Pass | Base64 command batch preview reported add/archive/directive counts and omitted decoded memory text from the preview payload. |
+| Info | JSON validation | Pass | `companion-files.json`, `control_data/*.json`, and `tracker_data/*.json` parse successfully across 15 files. |
+| Info | Copyover check | Pass | `cmd /c copyover.bat --check` detected `D:\000_Files\002_Projects\EVE\MS\Companions-1`, version `0.1.18.0`, and copied no files. |
+| Info | Whitespace gate | Pass | `git diff --check` reported no whitespace errors; Git only warned that edited text files will be normalized from LF to CRLF when touched. |
+| Low | Browser testing | Not run | Per repo TODO guidance, no browser-based test was run; UI behavior was covered with static markers and isolated function/API-adjacent smoke checks. |
+
 ## 2026-07-12 - 0.1.17.3 Signed-Out Auth Shell Fix
 
 | Severity | Area | Result | Notes |

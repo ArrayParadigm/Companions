@@ -124,6 +124,33 @@ CALENDAR_CATEGORY_LABELS = {
     "directives": "Companion Directives",
     "general": "General",
 }
+DEFAULT_DIRECTIVE_TIMEZONE = "America/Chicago"
+DIRECTIVE_TYPES = [
+    "health",
+    "work",
+    "family",
+    "fitness",
+    "princess_campaign",
+    "tiny_tyrant",
+    "project",
+    "spiritual",
+    "manual",
+]
+DIRECTIVE_EXPORT_FIELDS = [
+    "id",
+    "issuer",
+    "title",
+    "details",
+    "status",
+    "priority",
+    "due_at",
+    "due_timezone",
+    "type",
+    "tags",
+    "proof_required",
+    "created_at",
+    "updated_at",
+]
 
 
 def first_existing_path(*paths):
@@ -632,7 +659,14 @@ def create_companion_record(data):
 
 def directive_store():
     ensure_data_files()
-    return read_json(DIRECTIVES_FILE, {"next_directive_number": 1, "directives": []})
+    store = read_json(DIRECTIVES_FILE, {"next_directive_number": 1, "directives": []})
+    normalized = [normalize_directive_record(directive) for directive in store.get("directives", [])]
+    old_next = store.get("next_directive_number")
+    refresh_directive_counter(store)
+    if normalized != store.get("directives", []) or old_next != store.get("next_directive_number"):
+        store["directives"] = normalized
+        write_json(DIRECTIVES_FILE, store)
+    return store
 
 
 def proof_store():
@@ -673,6 +707,115 @@ def clean_date(value):
         return datetime.strptime(text, "%Y-%m-%d").date()
     except ValueError:
         return None
+
+
+def split_tags(value):
+    if isinstance(value, list):
+        raw_tags = value
+    else:
+        raw_tags = re.split(r"[,;]", str(value or ""))
+    tags = []
+    seen = set()
+    for tag in raw_tags:
+        cleaned = re.sub(r"\s+", "_", str(tag or "").strip().lower())
+        cleaned = re.sub(r"[^a-z0-9_-]+", "", cleaned)
+        if cleaned and cleaned not in seen:
+            tags.append(cleaned)
+            seen.add(cleaned)
+    return tags
+
+
+def clean_directive_type(value):
+    text = re.sub(r"\s+", "_", str(value or "").strip().lower())
+    return text if text in DIRECTIVE_TYPES else "manual"
+
+
+def clean_directive_due(value):
+    return str(value or "").strip()
+
+
+def clean_directive_timezone(value):
+    text = str(value or "").strip()
+    if not text:
+        return DEFAULT_DIRECTIVE_TIMEZONE
+    return text[:64]
+
+
+def directive_due_display(value):
+    text = clean_directive_due(value)
+    if not text:
+        return "No due date"
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", text):
+        return text
+    if re.fullmatch(r"\d{1,2}:\d{2}(\s?[AP]M)?", text, flags=re.I):
+        return f"Time only: {text}"
+    normalized = text.replace("T", " ")
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}(:\d{2})?", normalized):
+        return normalized[:16]
+    return text
+
+
+def normalize_duplicate_text(value):
+    return re.sub(r"\s+", " ", str(value or "").strip().lower())
+
+
+def directive_duplicate_signature(directive):
+    return (
+        normalize_duplicate_text(directive.get("issuer")),
+        normalize_duplicate_text(directive.get("title")),
+        normalize_duplicate_text(directive.get("details")),
+        normalize_duplicate_text(directive.get("due_at")),
+        normalize_duplicate_text(directive.get("status", "issued")),
+    )
+
+
+def find_duplicate_directive(store, candidate, ignore_id=""):
+    candidate_signature = directive_duplicate_signature(candidate)
+    for directive in store.get("directives", []):
+        if ignore_id and str(directive.get("id", "")).lower() == str(ignore_id).lower():
+            continue
+        if directive_duplicate_signature(directive) == candidate_signature:
+            return directive
+    return None
+
+
+def directive_number(value):
+    match = re.search(r"(\d+)$", str(value or ""))
+    return int(match.group(1)) if match else 0
+
+
+def refresh_directive_counter(store):
+    highest = max([directive_number(directive.get("id")) for directive in store.get("directives", [])] or [0])
+    store["next_directive_number"] = max(clean_int(store.get("next_directive_number"), default=1, minimum=1), highest + 1)
+    return store["next_directive_number"]
+
+
+def normalize_directive_record(directive):
+    normalized = copy.deepcopy(directive)
+    normalized["issuer"] = str(normalized.get("issuer") or "Veyra").strip() or "Veyra"
+    normalized["title"] = str(normalized.get("title") or "").strip()
+    normalized["details"] = str(normalized.get("details") or "").strip()
+    normalized["status"] = str(normalized.get("status") or "issued").strip().lower() or "issued"
+    normalized["priority"] = str(normalized.get("priority") or "3").strip() or "3"
+    normalized["due_at"] = clean_directive_due(normalized.get("due_at"))
+    normalized["due_timezone"] = clean_directive_timezone(normalized.get("due_timezone") or normalized.get("timezone"))
+    normalized["type"] = clean_directive_type(normalized.get("type"))
+    normalized["tags"] = split_tags(normalized.get("tags"))
+    normalized["proof_required"] = clean_bool(normalized.get("proof_required", False))
+    normalized.setdefault("created_at", now_stamp())
+    normalized["updated_at"] = normalized.get("updated_at") or normalized.get("created_at") or now_stamp()
+    return normalized
+
+
+def backup_json_file(path):
+    if not path.exists():
+        return None
+    backup_dir = APP_DIR / "bkup" / "control_data_backups"
+    backup_dir.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    backup_path = backup_dir / f"{path.stem}.{stamp}{path.suffix}.bak"
+    shutil.copy2(path, backup_path)
+    return backup_path
 
 
 def clean_recurrence_type(value):
@@ -2090,26 +2233,30 @@ def render_project_page(todo_id, profile_name=None):
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{html_escape(todo.get('title', 'Project'))}</title>
   <style>
-    body {{ font-family: Segoe UI, system-ui, sans-serif; margin: 18px; background: #10151a; color: #edf2f7; font-size: 14px; }}
+    :root {{ color-scheme: dark; --bg: #101316; --panel: #181d22; --panel-2: #20262d; --text: #edf2f7; --muted: #9da8b5; --line: #303842; --accent: #62d6b2; --danger: #ec6b6b; }}
+    * {{ box-sizing: border-box; }}
+    body {{ font-family: Segoe UI, system-ui, sans-serif; margin: 18px; background: var(--bg); color: var(--text); font-size: 14px; }}
     main {{ max-width: 980px; margin: 0 auto; }}
-    section {{ border: 1px solid #303842; border-radius: 8px; padding: 12px; margin: 10px 0; background: #181d22; }}
+    section {{ border: 1px solid var(--line); border-radius: 8px; padding: 12px; margin: 10px 0; background: var(--panel); }}
     h1 {{ margin: 0 0 4px; font-size: 1.55rem; }}
     h2 {{ font-size: 1.02rem; margin: 0 0 8px; }}
     h3 {{ font-size: .94rem; margin: 12px 0 6px; }}
-    label {{ display: block; margin: 8px 0 4px; color: #c7d0da; }}
-    input, select, textarea {{ width: 100%; box-sizing: border-box; border: 1px solid #3b4652; border-radius: 6px; background: #0d1116; color: #edf2f7; padding: 8px; font: inherit; }}
+    label {{ display: block; margin: 8px 0 4px; color: var(--muted); }}
+    input, select, textarea {{ width: 100%; border: 1px solid var(--line); border-radius: 6px; background: #0d1116; color: var(--text); padding: 8px; font: inherit; }}
+    input:focus-visible, select:focus-visible, textarea:focus-visible, button:focus-visible, a:focus-visible {{ outline: 2px solid var(--accent); outline-offset: 2px; }}
     textarea {{ min-height: 78px; resize: vertical; }}
-    pre {{ white-space: pre-wrap; font: inherit; color: #c7d0da; margin: 0; }}
-    a {{ color: #62d6b2; }}
+    pre {{ white-space: pre-wrap; font: inherit; color: var(--muted); margin: 0; overflow-wrap: anywhere; }}
+    a {{ color: var(--accent); }}
     .grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 10px; }}
     .row {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; }}
-    .pill {{ display: inline-block; border: 1px solid #3b4652; border-radius: 999px; padding: 3px 8px; margin: 2px 4px 2px 0; color: #c7d0da; }}
-    .muted {{ color: #9aa7b4; }}
+    .pill {{ display: inline-block; border: 1px solid var(--line); border-radius: 999px; padding: 3px 8px; margin: 2px 4px 2px 0; color: var(--muted); }}
+    .muted {{ color: var(--muted); }}
     .actions {{ display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }}
-    button {{ border: 1px solid #3b4652; border-radius: 6px; background: #202832; color: #edf2f7; padding: 8px 10px; cursor: pointer; }}
-    button.primary {{ background: #1e6f58; border-color: #2a8f72; }}
-    button.danger {{ background: #6f2d2d; border-color: #9f4646; }}
+    button {{ border: 1px solid var(--line); border-radius: 6px; background: var(--panel-2); color: var(--text); padding: 8px 10px; cursor: pointer; }}
+    button.primary {{ border-color: var(--accent); color: var(--accent); }}
+    button.danger {{ border-color: var(--danger); color: var(--danger); }}
     ul {{ margin: 0; padding-left: 18px; }}
+    @media (max-width: 800px) {{ body {{ margin: 10px; }} .actions {{ flex-direction: column; }} .actions button {{ width: 100%; }} }}
   </style>
 </head>
 <body>
@@ -2328,10 +2475,14 @@ def directive_memory_content(directive):
         f"Issued directive {directive['id']}: {directive['title']}.",
         f"Priority {directive.get('priority', '3')}.",
     ]
+    if directive.get("type"):
+        parts.append(f"Type {directive['type']}.")
     if directive.get("due_at"):
-        parts.append(f"Due {directive['due_at']}.")
+        parts.append(f"Due {directive_due_display(directive['due_at'])} {directive.get('due_timezone', DEFAULT_DIRECTIVE_TIMEZONE)}.")
     if directive.get("proof_required"):
         parts.append("Proof required.")
+    if directive.get("tags"):
+        parts.append(f"Tags: {', '.join(directive.get('tags', []))}.")
     if directive.get("details"):
         parts.append(f"Details: {directive['details']}")
     return " ".join(parts)
@@ -2400,20 +2551,26 @@ def export_companion_payload(companion, payload):
 def create_directive(data, remember_issuer=True):
     store = directive_store()
     directive_id = next_id(store, "next_directive_number", "DIR")
-    directive = {
+    directive = normalize_directive_record({
         "id": directive_id,
         "issuer": data.get("issuer", "Veyra"),
         "title": data.get("title", "").strip(),
         "details": data.get("details", "").strip(),
         "status": data.get("status", "issued"),
         "priority": data.get("priority", "3"),
-        "due_at": data.get("due_at", "").strip(),
+        "due_at": data.get("due_at", ""),
+        "due_timezone": data.get("due_timezone", DEFAULT_DIRECTIVE_TIMEZONE),
+        "type": data.get("type", "manual"),
+        "tags": data.get("tags", []),
         "proof_required": bool(data.get("proof_required", False)),
         "created_at": now_stamp(),
         "updated_at": now_stamp(),
-    }
+    })
     if not directive["title"]:
         raise ValueError("Directive title is required.")
+    duplicate = find_duplicate_directive(store, directive)
+    if duplicate and not data.get("allow_duplicate"):
+        raise ValueError(f"Possible duplicate directive: {duplicate.get('id')}.")
     store["directives"].append(directive)
     write_json(DIRECTIVES_FILE, store)
     if remember_issuer:
@@ -2468,6 +2625,9 @@ def parse_directive_text(data):
         "details": text,
         "priority": 3,
         "due_at": "",
+        "due_timezone": DEFAULT_DIRECTIVE_TIMEZONE,
+        "type": "manual",
+        "tags": [],
         "proof_required": False,
     }
 
@@ -2477,7 +2637,7 @@ def parse_directive_text(data):
         if not stripped:
             continue
 
-        key_match = re.match(r"^(issuer|from|title|directive|task|details?|description|priority|due|deadline|proof|proof_required|evidence)\s*[:=-]\s*(.+)$", stripped, flags=re.I)
+        key_match = re.match(r"^(issuer|from|title|directive|task|details?|description|priority|due|deadline|timezone|tz|type|tags?|proof|proof_required|evidence)\s*[:=-]\s*(.+)$", stripped, flags=re.I)
         if not key_match:
             detail_lines.append(stripped)
             continue
@@ -2494,6 +2654,12 @@ def parse_directive_text(data):
             parsed["priority"] = parse_priority(value)
         elif key in ("due", "deadline"):
             parsed["due_at"] = value
+        elif key in ("timezone", "tz"):
+            parsed["due_timezone"] = clean_directive_timezone(value)
+        elif key == "type":
+            parsed["type"] = clean_directive_type(value)
+        elif key in ("tag", "tags"):
+            parsed["tags"] = split_tags(value)
         elif key in ("proof", "proof_required", "evidence"):
             bool_value = parse_bool_text(value)
             parsed["proof_required"] = bool_value if bool_value is not None else True
@@ -2519,7 +2685,7 @@ def parse_directive_text(data):
     if detail_lines:
         parsed["details"] = "\n".join(detail_lines)
 
-    return parsed
+    return normalize_directive_record(parsed)
 
 
 def update_directive(directive_id, data):
@@ -2527,9 +2693,13 @@ def update_directive(directive_id, data):
     for directive in store.get("directives", []):
         if directive["id"].lower() == directive_id.lower():
             directive.setdefault("created_at", now_stamp())
-            for key in ("status", "title", "details", "priority", "due_at", "proof_required"):
+            for key in ("status", "title", "details", "priority", "due_at", "due_timezone", "type", "tags", "proof_required"):
                 if key in data:
                     directive[key] = data[key]
+            directive.update(normalize_directive_record(directive))
+            duplicate = find_duplicate_directive(store, directive, ignore_id=directive_id)
+            if duplicate and not data.get("allow_duplicate"):
+                raise ValueError(f"Possible duplicate directive: {duplicate.get('id')}.")
             directive["updated_at"] = now_stamp()
             write_json(DIRECTIVES_FILE, store)
             return directive
@@ -2841,7 +3011,52 @@ def parse_directive_command(line, issuer):
         "details": details,
         "priority": parse_priority(metadata.get("priority", "3")),
         "due_at": metadata.get("due") or metadata.get("deadline") or "",
+        "due_timezone": clean_directive_timezone(metadata.get("timezone") or metadata.get("tz")),
+        "type": clean_directive_type(metadata.get("type", "manual")),
+        "tags": split_tags(metadata.get("tags", "")),
         "proof_required": parsed_proof if parsed_proof is not None else False,
+    }
+
+
+def command_batch_preview(command_text):
+    decoded = decode_command_batch_if_needed(command_text)
+    lines = [line.strip() for line in decoded.splitlines() if line.strip()]
+    counts = {
+        "add": 0,
+        "update": 0,
+        "archive": 0,
+        "unarchive": 0,
+        "resave": 0,
+        "delete": 0,
+        "directives": 0,
+        "unknown": 0,
+    }
+    directive_titles = []
+    for line in lines:
+        lower = line.lower()
+        if is_directive_command(line):
+            counts["directives"] += 1
+            directive_titles.append(parse_directive_command(line, ARRAY_PROFILE).get("title", "Directive"))
+        elif lower.startswith("add ") or lower.startswith("add:"):
+            counts["add"] += 1
+        elif lower.startswith(("update ", "edit ")):
+            counts["update"] += 1
+        elif lower.startswith("archive "):
+            counts["archive"] += 1
+        elif lower.startswith("unarchive "):
+            counts["unarchive"] += 1
+        elif lower.startswith("resave "):
+            counts["resave"] += 1
+        elif lower.startswith("delete "):
+            counts["delete"] += 1
+        else:
+            counts["unknown"] += 1
+    return {
+        "line_count": len(lines),
+        "decoded_from_base64": decoded != command_text.strip(),
+        "counts": counts,
+        "directive_titles": directive_titles[:20],
+        "privacy": "Preview shows operation counts and directive titles only; memory text is hidden.",
     }
 
 
@@ -2853,8 +3068,11 @@ def apply_commands(companion, command_text):
     applied = []
     directives = []
     memory_changed = False
+    directive_backup_path = None
     for line in lines:
         if is_directive_command(line):
+            if directive_backup_path is None:
+                directive_backup_path = backup_json_file(DIRECTIVES_FILE)
             directive_data = parse_directive_command(line, companion)
             directive_issuer = companion_name_for_issuer(directive_data.get("issuer"))
             if directive_issuer == companion:
@@ -2877,7 +3095,89 @@ def apply_commands(companion, command_text):
         "applied": applied,
         "directives": directives,
         "backup": backup_path.name if backup_path else None,
+        "directive_backup": directive_backup_path.name if directive_backup_path else None,
         "summary": packet_summary(companion, trial_payload),
+    }
+
+
+def decode_directive_export_packet(packet_text):
+    compact = "".join(str(packet_text or "").split())
+    if not compact:
+        raise ValueError("Directive export packet is empty.")
+    try:
+        padded = compact + ("=" * (-len(compact) % 4))
+        payload = json.loads(base64.b64decode(padded, validate=True).decode("utf-8"))
+    except (binascii.Error, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValueError("Directive export packet must be base64 JSON.") from exc
+    if payload.get("schema") != "companion-directive-export/v1":
+        raise ValueError("Directive export packet schema is not companion-directive-export/v1.")
+    directives = payload.get("directives", [])
+    if not isinstance(directives, list):
+        raise ValueError("Directive export packet directives must be a list.")
+    return payload
+
+
+def directive_export_preview(packet_text):
+    payload = decode_directive_export_packet(packet_text)
+    directives = [normalize_directive_record(directive) for directive in payload.get("directives", [])]
+    status_counts = {}
+    for directive in directives:
+        status = directive.get("status", "issued")
+        status_counts[status] = status_counts.get(status, 0) + 1
+    return {
+        "schema": payload.get("schema"),
+        "exported_at": payload.get("exported_at", ""),
+        "count": len(directives),
+        "status_counts": status_counts,
+        "directives": [
+            {
+                "id": directive.get("id", ""),
+                "issuer": directive.get("issuer", ""),
+                "title": directive.get("title", ""),
+                "status": directive.get("status", ""),
+                "priority": directive.get("priority", ""),
+                "due": directive_due_display(directive.get("due_at")),
+                "type": directive.get("type", "manual"),
+                "tags": directive.get("tags", []),
+            }
+            for directive in directives[:50]
+        ],
+        "privacy": "Preview omits directive details and memory packet content.",
+    }
+
+
+def merge_directive_export(packet_text):
+    payload = decode_directive_export_packet(packet_text)
+    imported = [normalize_directive_record(directive) for directive in payload.get("directives", [])]
+    store = directive_store()
+    existing_ids = {str(directive.get("id", "")).lower() for directive in store.get("directives", [])}
+    backup_path = backup_json_file(DIRECTIVES_FILE)
+    merged = []
+    skipped = []
+    for directive in imported:
+        if not directive.get("title"):
+            skipped.append({"id": directive.get("id", ""), "title": "", "reason": "missing title"})
+            continue
+        duplicate = find_duplicate_directive(store, directive)
+        if duplicate:
+            skipped.append({"id": directive.get("id", ""), "title": directive.get("title", ""), "reason": f"duplicate of {duplicate.get('id')}"})
+            continue
+        original_id = str(directive.get("id", "")).strip()
+        if not original_id or original_id.lower() in existing_ids:
+            directive["id"] = next_id(store, "next_directive_number", "DIR")
+        else:
+            existing_ids.add(original_id.lower())
+        directive = {key: directive.get(key) for key in DIRECTIVE_EXPORT_FIELDS if key in directive}
+        directive["updated_at"] = directive.get("updated_at") or now_stamp()
+        store.setdefault("directives", []).append(directive)
+        merged.append({"id": directive.get("id", ""), "title": directive.get("title", "")})
+    refresh_directive_counter(store)
+    write_json(DIRECTIVES_FILE, store)
+    return {
+        "merged": merged,
+        "skipped": skipped,
+        "backup": backup_path.name if backup_path else None,
+        "message": f"Merged {len(merged)} directive(s); skipped {len(skipped)}.",
     }
 
 
@@ -2954,7 +3254,7 @@ def directive_recent_or_active(directive, cutoff):
 def directive_export_packet():
     cutoff = datetime.now() - timedelta(days=31)
     directives = [
-        copy.deepcopy(directive)
+        {key: normalize_directive_record(directive).get(key) for key in DIRECTIVE_EXPORT_FIELDS}
         for directive in directive_store().get("directives", [])
         if directive_recent_or_active(directive, cutoff)
     ]
@@ -3136,6 +3436,11 @@ INDEX_HTML = r"""<!doctype html>
       padding: 8px;
       font: inherit;
     }
+    input:focus-visible, select:focus-visible, textarea:focus-visible,
+    button:focus-visible, a.inline:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+    }
     textarea { min-height: 110px; resize: vertical; }
     .packet { min-height: 230px; font-family: Consolas, monospace; font-size: 12px; }
     .row { display: flex; gap: 8px; align-items: center; }
@@ -3152,10 +3457,13 @@ INDEX_HTML = r"""<!doctype html>
       text-decoration: none;
     }
     button.inline.primary, a.inline.primary { border-color: var(--accent); color: var(--accent); }
+    button.inline.danger, a.inline.danger { border-color: var(--danger); color: var(--danger); }
+    button.inline[disabled] { opacity: 0.55; cursor: not-allowed; }
     table {
       width: 100%;
       border-collapse: collapse;
       font-size: 13px;
+      min-width: 680px;
     }
     th, td {
       border-bottom: 1px solid var(--line);
@@ -3186,6 +3494,7 @@ INDEX_HTML = r"""<!doctype html>
       overflow: auto;
       border: 1px solid var(--line);
       border-radius: 6px;
+      -webkit-overflow-scrolling: touch;
     }
     .scrollbox table { margin: 0; }
     .scrollbox p { padding: 10px; margin: 0; }
@@ -3269,6 +3578,7 @@ INDEX_HTML = r"""<!doctype html>
       margin-top: 4px;
       font-size: 12px;
       line-height: 1.25;
+      overflow-wrap: anywhere;
     }
     .calendar-event.generated { border-left-color: #8fd694; }
     .detail-box {
@@ -3288,6 +3598,31 @@ INDEX_HTML = r"""<!doctype html>
       margin: 6px 0;
       text-align: left;
       cursor: pointer;
+      overflow-wrap: anywhere;
+    }
+    .empty-state {
+      border: 1px dashed var(--line);
+      border-radius: 6px;
+      padding: 10px;
+      color: var(--muted);
+      background: #10151a;
+      margin: 8px 0;
+    }
+    .empty-state strong {
+      display: block;
+      color: var(--text);
+      margin-bottom: 3px;
+    }
+    .toolbar-row {
+      display: flex;
+      gap: 8px;
+      align-items: flex-end;
+      flex-wrap: wrap;
+      margin: 8px 0 10px;
+    }
+    .toolbar-row > * {
+      flex: 1 1 160px;
+      min-width: 0;
     }
     .directive-title { display: block; margin-bottom: 5px; }
     .directive-detail {
@@ -3298,6 +3633,8 @@ INDEX_HTML = r"""<!doctype html>
       padding: 7px 8px;
       border-radius: 4px;
       min-width: 220px;
+      max-width: 560px;
+      overflow-wrap: anywhere;
     }
     .reading-checklist {
       display: grid;
@@ -3342,6 +3679,11 @@ INDEX_HTML = r"""<!doctype html>
       main { grid-template-columns: 1fr; }
       nav { border-right: 0; border-bottom: 1px solid var(--line); }
       .grid, .dashboard-grid, .field-grid, .reading-checklist { grid-template-columns: 1fr; }
+      header { align-items: flex-start; flex-direction: column; }
+      .profile-bar { justify-content: flex-start; }
+      .row { flex-direction: column; align-items: stretch; }
+      .calendar-grid { min-width: 720px; }
+      #calendarGrid { overflow-x: auto; }
       .span-2 { grid-column: auto; }
     }
   </style>
@@ -3497,7 +3839,11 @@ INDEX_HTML = r"""<!doctype html>
           <button class="inline primary" onclick="addMemory()">Add Memory</button>
           <label>Command batch</label>
           <textarea id="commandBatch" placeholder="add projects - durable memory | weight=4 | tags=project&#10;edit NYX-0002 -> corrected memory text&#10;unarchive NYX-0007&#10;resave NYX-0008&#10;directive - Verify live console | priority=4 | due=2026-07-04 10:00 | proof=true | details=Confirm all companions load.&#10;or paste a base64-encoded command batch"></textarea>
-          <button class="inline primary" onclick="applyCommands()">Apply Commands</button>
+          <div class="row" style="margin-top:10px;">
+            <button class="inline" onclick="previewCommands()">Preview Commands</button>
+            <button class="inline primary" onclick="applyCommands()">Apply Commands</button>
+          </div>
+          <div id="commandPreview" class="empty-state" style="display:none;"></div>
         </div>
         <div class="panel full">
           <h2>ID-Only Memory Index</h2>
@@ -3550,12 +3896,51 @@ INDEX_HTML = r"""<!doctype html>
               <input id="directiveDue" type="datetime-local">
             </div>
           </div>
+          <div class="row">
+            <div>
+              <label>Type</label>
+              <select id="directiveType">
+                <option value="manual">Manual</option>
+                <option value="health">Health</option>
+                <option value="work">Work</option>
+                <option value="family">Family</option>
+                <option value="fitness">Fitness</option>
+                <option value="princess_campaign">Princess Campaign</option>
+                <option value="tiny_tyrant">Tiny Tyrant</option>
+                <option value="project">Project</option>
+                <option value="spiritual">Spiritual</option>
+              </select>
+            </div>
+            <div>
+              <label>Timezone</label>
+              <input id="directiveTimezone" value="America/Chicago">
+            </div>
+          </div>
+          <label>Tags</label>
+          <input id="directiveTags" placeholder="health, project, manual">
           <label><input id="directiveProofRequired" type="checkbox" style="width:auto;"> Proof required</label>
           <button class="inline primary" onclick="createDirective()">Create Directive</button>
         </div>
         <div class="panel full">
           <h2>Ledger</h2>
-          <button class="inline primary" onclick="copyDirectiveExport()">Directive Export</button>
+          <div class="toolbar-row">
+            <button class="inline primary" onclick="copyDirectiveExport()">Copy Directive Export</button>
+            <div>
+              <label>Filter type</label>
+              <select id="directiveTypeFilter" onchange="renderDirectives()">
+                <option value="all">All types</option>
+                <option value="health">Health</option>
+                <option value="work">Work</option>
+                <option value="family">Family</option>
+                <option value="fitness">Fitness</option>
+                <option value="princess_campaign">Princess Campaign</option>
+                <option value="tiny_tyrant">Tiny Tyrant</option>
+                <option value="project">Project</option>
+                <option value="spiritual">Spiritual</option>
+                <option value="manual">Manual</option>
+              </select>
+            </div>
+          </div>
           <div class="tab-row" id="directiveTabs">
             <button class="active" data-status="issued">Issued</button>
             <button data-status="complete">Completed</button>
@@ -3563,6 +3948,16 @@ INDEX_HTML = r"""<!doctype html>
             <button data-status="all">All</button>
           </div>
           <div id="directiveList"></div>
+        </div>
+        <div class="panel full">
+          <h2>Directive Import</h2>
+          <label>Base64 directive export</label>
+          <textarea id="directiveImportPacket" class="packet" placeholder="Paste companion-directive-export/v1 base64 here"></textarea>
+          <div class="row" style="margin-top:10px;">
+            <button class="inline" onclick="previewDirectiveImport()">Preview Import</button>
+            <button class="inline primary" onclick="mergeDirectiveImport()">Import Directives</button>
+          </div>
+          <div id="directiveImportPreview" class="empty-state" style="display:none;"></div>
         </div>
       </div>
     </section>
@@ -3857,8 +4252,30 @@ INDEX_HTML = r"""<!doctype html>
             <button data-project="vehicle">Vehicle Maintenance</button>
             <button data-project="tech">Tech Projects</button>
           </div>
-          <label>Project category</label>
-          <select id="projectCategoryFilter"></select>
+          <div class="toolbar-row">
+            <div>
+              <label>Project category</label>
+              <select id="projectCategoryFilter"></select>
+            </div>
+            <div>
+              <label>Status</label>
+              <select id="projectStatusFilter">
+                <option value="all">All statuses</option>
+                <option value="open">Open</option>
+                <option value="done">Done</option>
+              </select>
+            </div>
+            <div>
+              <label>Sort</label>
+              <select id="projectSortOrder">
+                <option value="updated_desc">Updated newest</option>
+                <option value="due_asc">Due soonest</option>
+                <option value="title_asc">Title A-Z</option>
+                <option value="status_asc">Status</option>
+                <option value="category_asc">Category</option>
+              </select>
+            </div>
+          </div>
           <p class="muted" id="projectCategoryDescription"></p>
         </div>
         <div class="panel">
@@ -4348,6 +4765,11 @@ INDEX_HTML = r"""<!doctype html>
       selectedProjectTodoId = null;
       renderProjects();
     });
+    document.getElementById('projectStatusFilter').addEventListener('change', () => {
+      selectedProjectTodoId = null;
+      renderProjects();
+    });
+    document.getElementById('projectSortOrder').addEventListener('change', renderProjects);
 
     document.getElementById('projectTodoCategory').addEventListener('change', event => {
       selectedProjectCategory = event.target.value;
@@ -4579,12 +5001,15 @@ INDEX_HTML = r"""<!doctype html>
         document.getElementById('dashIntegrityDetail').textContent = integrity.ok ? `Checked ${integrity.checked_at || ''}` : `${integrity.issues.length} issue(s) found`;
       }
       document.getElementById('dashWorkCloud').innerHTML = renderTagCloud(state.trackers.work_categories, state.trackers.task_categories);
-      document.getElementById('dashLatestCheckin').innerHTML = latest ? renderCheckinCard(latest) : '<p class="muted">No entries.</p>';
+      document.getElementById('dashLatestCheckin').innerHTML = latest ? renderCheckinCard(latest) : emptyState('No daily check-ins yet.', 'Saved check-ins will appear here.');
     }
 
     async function copyPacket() {
-      await navigator.clipboard.writeText(document.getElementById('packetBox').value.trim());
-      setStatus(`Copied ${selectedCompanion} packet.`);
+      await copyToClipboard(
+        document.getElementById('packetBox').value.trim(),
+        `Copied ${selectedCompanion} packet.`,
+        'Could not copy packet.'
+      );
     }
 
     function downloadPacket() {
@@ -4609,8 +5034,7 @@ INDEX_HTML = r"""<!doctype html>
     async function copyHandoff() {
       const res = await fetch(`/api/companion/${encodeURIComponent(selectedCompanion)}/handoff`);
       const data = await handleResponse(res, false);
-      await navigator.clipboard.writeText(data.handoff);
-      setStatus(`Copied ${selectedCompanion} handoff.`);
+      await copyToClipboard(data.handoff, `Copied ${selectedCompanion} handoff.`, 'Could not copy handoff.');
     }
 
     async function addMemory() {
@@ -4641,6 +5065,23 @@ INDEX_HTML = r"""<!doctype html>
       await handleResponse(res);
       document.getElementById('commandBatch').value = '';
       await loadState();
+    }
+
+    async function previewCommands() {
+      const body = { commands: document.getElementById('commandBatch').value };
+      const res = await fetch(`/api/companion/${encodeURIComponent(selectedCompanion)}/commands/preview`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+      const data = await handleResponse(res, false);
+      const counts = data.counts || {};
+      const lines = Object.entries(counts).filter(([, count]) => count).map(([key, count]) => `<span class="pill">${escapeHtml(key)} ${escapeHtml(count)}</span>`).join('');
+      const titles = (data.directive_titles || []).map(title => `<li>${escapeHtml(title)}</li>`).join('');
+      const target = document.getElementById('commandPreview');
+      target.style.display = '';
+      target.innerHTML = `<strong>${escapeHtml(data.line_count || 0)} command line(s)</strong><div>${lines || '<span class="muted">No recognized operations.</span>'}</div>${titles ? `<ul>${titles}</ul>` : ''}<p class="muted">${escapeHtml(data.privacy || '')}</p>`;
+      setStatus('Command preview ready.');
     }
 
     async function createCompanion() {
@@ -4681,6 +5122,9 @@ INDEX_HTML = r"""<!doctype html>
         details: document.getElementById('directiveDetails').value,
         priority: document.getElementById('directivePriority').value,
         due_at: document.getElementById('directiveDue').value,
+        due_timezone: document.getElementById('directiveTimezone').value,
+        type: document.getElementById('directiveType').value,
+        tags: splitTagText(document.getElementById('directiveTags').value),
         proof_required: document.getElementById('directiveProofRequired').checked
       };
       const res = await fetch('/api/directives', {
@@ -4691,6 +5135,7 @@ INDEX_HTML = r"""<!doctype html>
       await handleResponse(res);
       document.getElementById('directiveTitle').value = '';
       document.getElementById('directiveDetails').value = '';
+      document.getElementById('directiveTags').value = '';
       await loadState();
     }
 
@@ -4710,6 +5155,9 @@ INDEX_HTML = r"""<!doctype html>
       document.getElementById('directiveDetails').value = data.directive.details;
       document.getElementById('directivePriority').value = data.directive.priority;
       document.getElementById('directiveDue').value = normalizeDateTimeLocal(data.directive.due_at);
+      document.getElementById('directiveTimezone').value = data.directive.due_timezone || 'America/Chicago';
+      document.getElementById('directiveType').value = data.directive.type || 'manual';
+      document.getElementById('directiveTags').value = (data.directive.tags || []).join(', ');
       document.getElementById('directiveProofRequired').checked = Boolean(data.directive.proof_required);
     }
 
@@ -4726,22 +5174,51 @@ INDEX_HTML = r"""<!doctype html>
     async function copyDirectiveExport() {
       const res = await fetch('/api/directives/export');
       const data = await handleResponse(res, false);
-      await navigator.clipboard.writeText(data.packet || '');
-      setStatus(`Copied directive export with ${data.count || 0} directive(s).`);
+      await copyToClipboard(data.packet || '', `Copied directive export with ${data.count || 0} directive(s).`, 'Could not copy directive export.');
+    }
+
+    async function previewDirectiveImport() {
+      const res = await fetch('/api/directives/import/preview', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ packet: document.getElementById('directiveImportPacket').value })
+      });
+      const data = await handleResponse(res, false);
+      const target = document.getElementById('directiveImportPreview');
+      const statuses = Object.entries(data.status_counts || {}).map(([status, count]) => `<span class="pill">${escapeHtml(status)} ${escapeHtml(count)}</span>`).join('');
+      const rows = (data.directives || []).map(item => `<tr><td>${escapeHtml(item.id)}</td><td>${escapeHtml(item.issuer)}</td><td>${escapeHtml(item.title)}</td><td>${escapeHtml(item.status)}</td><td>${escapeHtml(item.due)}</td><td>${escapeHtml(item.type)}</td></tr>`).join('');
+      target.style.display = '';
+      target.innerHTML = `<strong>${escapeHtml(data.count || 0)} directive(s) in packet</strong><div>${statuses}</div><div class="scrollbox"><table><thead><tr><th>ID</th><th>Issuer</th><th>Title</th><th>Status</th><th>Due</th><th>Type</th></tr></thead><tbody>${rows || tableEmpty(6, 'No directives found.', 'The packet decoded, but it did not contain importable directives.')}</tbody></table></div><p class="muted">${escapeHtml(data.privacy || '')}</p>`;
+      setStatus('Directive import preview ready.');
+    }
+
+    async function mergeDirectiveImport() {
+      const res = await fetch('/api/directives/import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ packet: document.getElementById('directiveImportPacket').value })
+      });
+      const data = await handleResponse(res);
+      document.getElementById('directiveImportPreview').style.display = '';
+      document.getElementById('directiveImportPreview').innerHTML = `<strong>${escapeHtml(data.message || 'Import complete.')}</strong><p class="muted">Backup: ${escapeHtml(data.backup || 'not needed')}</p>`;
+      await loadState();
     }
 
     function renderDirectives() {
       if (!((state.access || {}).directives)) return;
+      const typeFilter = document.getElementById('directiveTypeFilter').value || 'all';
       const directives = selectedDirectiveStatus === 'all'
         ? state.directives
         : state.directives.filter(d => String(d.status || 'issued').toLowerCase() === selectedDirectiveStatus);
-      const rows = directives.map(d => {
+      const filtered = directives.filter(d => typeFilter === 'all' || String(d.type || 'manual') === typeFilter);
+      const rows = filtered.map(d => {
         const statusClass = `status-${escapeHtml(String(d.status || 'issued').toLowerCase())}`;
         const proof = d.proof_required ? 'required' : '';
         const details = d.details ? escapeHtml(d.details) : '<span class="muted">No details supplied.</span>';
-        return `<tr><td>${escapeHtml(d.id)}</td><td>${escapeHtml(d.issuer)}</td><td>${escapeHtml(d.created_at || '')}</td><td><strong class="directive-title">${escapeHtml(d.title)}</strong><div class="directive-detail">${details}</div></td><td><span class="pill ${statusClass}">${escapeHtml(d.status)}</span></td><td>${escapeHtml(String(d.priority || ''))}</td><td>${escapeHtml(d.due_at || '')}</td><td>${escapeHtml(proof)}</td><td><button class="inline" onclick="setDirectiveStatus('${escapeJs(d.id)}','complete')">Complete</button> <button class="inline" onclick="setDirectiveStatus('${escapeJs(d.id)}','failed')">Fail</button> <button class="inline" onclick="setDirectiveStatus('${escapeJs(d.id)}','issued')">Reopen</button></td></tr>`;
+        const tags = (d.tags || []).map(tag => `<span class="pill">${escapeHtml(tag)}</span>`).join('');
+        return `<tr><td>${escapeHtml(d.id)}</td><td>${escapeHtml(d.issuer)}</td><td>${escapeHtml(d.created_at || '')}</td><td><strong class="directive-title">${escapeHtml(d.title)}</strong><span class="pill">${escapeHtml(d.type || 'manual')}</span>${tags}<div class="directive-detail">${details}</div></td><td><span class="pill ${statusClass}">${escapeHtml(d.status)}</span></td><td>${escapeHtml(String(d.priority || ''))}</td><td>${escapeHtml(formatDirectiveDue(d.due_at))}<br><span class="muted">${escapeHtml(d.due_timezone || 'America/Chicago')}</span></td><td>${escapeHtml(proof)}</td><td><button class="inline" onclick="setDirectiveStatus('${escapeJs(d.id)}','complete')">Complete</button> <button class="inline" onclick="setDirectiveStatus('${escapeJs(d.id)}','failed')">Fail</button> <button class="inline" onclick="setDirectiveStatus('${escapeJs(d.id)}','issued')">Reopen</button></td></tr>`;
       }).join('');
-      const empty = '<tr><td colspan="9" class="muted">No directives in this status.</td></tr>';
+      const empty = tableEmpty(9, 'No directives match.', 'Change the status or type filter, or create/import a directive.');
       document.getElementById('directiveList').innerHTML = `<div class="scrollbox"><table><thead><tr><th>ID</th><th>Issuer</th><th>Date Added</th><th>Command</th><th>Status</th><th>Priority</th><th>Due</th><th>Proof</th><th>Actions</th></tr></thead><tbody>${rows || empty}</tbody></table></div>`;
     }
 
@@ -4752,7 +5229,7 @@ INDEX_HTML = r"""<!doctype html>
         const action = p.path ? `<a class="inline" href="/api/proof/${encodeURIComponent(p.id)}/download">Download</a>` : '';
         return `<tr><td>${escapeHtml(p.id)}</td><td>${escapeHtml(p.directive_id)}</td><td>${escapeHtml(p.type)}</td><td>${escapeHtml(evidence)}</td><td>${escapeHtml(p.submitted_at)}</td><td>${action}</td></tr>`;
       }).join('');
-      document.getElementById('proofList').innerHTML = `<div class="scrollbox"><table><thead><tr><th>ID</th><th>Directive</th><th>Type</th><th>Evidence</th><th>Submitted</th><th>Actions</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+      document.getElementById('proofList').innerHTML = `<div class="scrollbox"><table><thead><tr><th>ID</th><th>Directive</th><th>Type</th><th>Evidence</th><th>Submitted</th><th>Actions</th></tr></thead><tbody>${rows || tableEmpty(6, 'No proof submitted yet.', 'Uploaded files and proof notes will appear here.')}</tbody></table></div>`;
     }
 
     function renderTrackers() {
@@ -4773,7 +5250,7 @@ INDEX_HTML = r"""<!doctype html>
       const work = latest ? latest.work || {} : {};
       const readingProgress = state.reading_progress || {};
       return `<div class="grid" style="margin-top:12px;">
-        <div class="panel"><h3>Latest Check-In</h3>${latest ? renderCheckinCard(latest) : '<p class="muted">No entries.</p>'}</div>
+        <div class="panel"><h3>Latest Check-In</h3>${latest ? renderCheckinCard(latest) : emptyState('No daily check-ins yet.', 'Saved check-ins will appear here.')}</div>
         <div class="panel"><h3>Spiritual</h3><span class="pill">${escapeHtml(readingProgress.bible_percent || 0)}% Bible read</span><span class="pill">${escapeHtml(readingProgress.bible_completed || 0)} / ${escapeHtml(readingProgress.bible_total || 0)} chapters</span><p class="muted">${escapeHtml(spiritual.reading_status || 'No reading status.')}</p></div>
         <div class="panel"><h3>Fitness</h3><p class="muted">${body.fitness_completed ? 'Fitness complete' : 'Fitness open'}, ${escapeHtml(body.sleep_hours || 0)}h sleep latest.</p></div>
         <div class="panel"><h3>Projects</h3><p class="muted">${escapeHtml(openProjects)} open project todo(s).</p><p class="muted">${escapeHtml(work.category || '')} ${escapeHtml(work.task_name || '')}</p></div>
@@ -4917,14 +5394,30 @@ INDEX_HTML = r"""<!doctype html>
       document.getElementById('projectTodoCategory').value = selectedProjectCategory;
       document.getElementById('projectCategoryFilter').value = selectedProjectCategory;
       updateProjectCategoryText();
-      const todos = (projects.todos || []).filter(todo => todo.category === selectedProjectCategory);
+      const statusFilter = document.getElementById('projectStatusFilter').value || 'all';
+      const sortOrder = document.getElementById('projectSortOrder').value || 'updated_desc';
+      const doneStatuses = new Set(['done', 'complete', 'completed']);
+      const todos = (projects.todos || [])
+        .filter(todo => todo.category === selectedProjectCategory)
+        .filter(todo => {
+          if (statusFilter === 'all') return true;
+          const status = String(todo.status || 'open').toLowerCase();
+          return statusFilter === 'done' ? doneStatuses.has(status) : !doneStatuses.has(status);
+        })
+        .sort((a, b) => {
+          if (sortOrder === 'due_asc') return String(a.due_date || '9999-99-99').localeCompare(String(b.due_date || '9999-99-99')) || String(a.title || '').localeCompare(String(b.title || ''));
+          if (sortOrder === 'title_asc') return String(a.title || '').localeCompare(String(b.title || ''));
+          if (sortOrder === 'status_asc') return String(a.status || '').localeCompare(String(b.status || ''));
+          if (sortOrder === 'category_asc') return String(a.category || '').localeCompare(String(b.category || '')) || String(a.title || '').localeCompare(String(b.title || ''));
+          return String(b.updated_at || b.created_at || '').localeCompare(String(a.updated_at || a.created_at || ''));
+        });
       if (!todos.some(todo => todo.id === selectedProjectTodoId)) selectedProjectTodoId = todos.length ? todos[0].id : null;
       document.getElementById('projectTodoList').innerHTML = todos.length
         ? todos.map(todo => {
             const selected = todo.id === selectedProjectTodoId ? '<span class="pill">selected</span>' : '';
-            return `<div class="todo-row"><strong>${escapeHtml(todo.title)}</strong> ${selected}<br><span class="muted">${escapeHtml(todo.status || 'open')} | added ${escapeHtml(todo.created_at || '')} | started ${escapeHtml(todo.date_started || todo.start_date || '')} | next ${escapeHtml(todo.next_step || '')}</span><br><button class="inline" onclick="selectProjectTodo('${escapeJs(todo.id)}')">Select</button> <a class="inline primary" href="/projects/${encodeURIComponent(todo.id)}${profileQuery()}" target="_blank">Open page</a> <button class="inline" onclick="loadProjectTodoIntoForm('${escapeJs(todo.id)}')">Edit</button> <button class="inline" onclick="deleteProjectTodo('${escapeJs(todo.id)}')">Delete</button></div>`;
+            return `<div class="todo-row"><strong>${escapeHtml(todo.title)}</strong> ${selected}<br><span class="muted">${escapeHtml(todo.status || 'open')} | due ${escapeHtml(todo.due_date || 'not set')} | updated ${escapeHtml(todo.updated_at || todo.created_at || '')} | next ${escapeHtml(todo.next_step || '')}</span><br><button class="inline" onclick="selectProjectTodo('${escapeJs(todo.id)}')">Select</button> <a class="inline primary" href="/projects/${encodeURIComponent(todo.id)}${profileQuery()}" target="_blank">Open Page</a> <button class="inline" onclick="loadProjectTodoIntoForm('${escapeJs(todo.id)}')">Edit</button> <button class="inline danger" onclick="deleteProjectTodo('${escapeJs(todo.id)}')">Delete</button></div>`;
           }).join('')
-        : '<p class="muted">No projects in this category.</p>';
+        : emptyState('No projects match.', 'Change the category/status filters, or add a project todo.');
       renderProjectTodoDetail();
     }
 
@@ -4952,11 +5445,11 @@ INDEX_HTML = r"""<!doctype html>
     function renderProjectTodoDetail() {
       const todo = currentProjectTodo();
       if (!todo) {
-        document.getElementById('projectTodoDetail').innerHTML = '<p class="muted">Select a project to open, edit, upload files, or delete it.</p>';
+        document.getElementById('projectTodoDetail').innerHTML = emptyState('No project selected.', 'Select a project to open, edit, upload files, or delete it.');
         return;
       }
       const category = ((state.projects || {}).categories || {})[todo.category] || todo.category;
-      const assets = (todo.assets || []).map(asset => `<li><a href="/${escapeHtml(asset.path)}" target="_blank">${escapeHtml(asset.type)}: ${escapeHtml(asset.filename)}</a> <span class="muted">${escapeHtml(asset.note || '')}</span></li>`).join('') || '<li class="muted">No files uploaded.</li>';
+      const assets = (todo.assets || []).map(asset => `<li><a href="/${escapeHtml(asset.path)}" target="_blank">${escapeHtml(asset.type)}: ${escapeHtml(asset.filename)}</a> <span class="muted">${escapeHtml(asset.note || '')}</span></li>`).join('') || '<li class="muted">No files uploaded yet.</li>';
       document.getElementById('projectAssetTodoId').value = todo.id;
       document.getElementById('projectTodoDetail').innerHTML = `<h3>${escapeHtml(todo.title)}</h3><span class="pill">${escapeHtml(category)}</span><span class="pill">${escapeHtml(todo.status || 'open')}</span><p class="muted">Added ${escapeHtml(todo.created_at || '')} | Started ${escapeHtml(todo.date_started || todo.start_date || '')}</p><a class="inline primary" href="/projects/${encodeURIComponent(todo.id)}${profileQuery()}" target="_blank">Open page</a> <button class="inline" onclick="loadProjectTodoIntoForm('${escapeJs(todo.id)}')">Edit</button> <button class="inline" onclick="setProjectTodoStatus('${escapeJs(todo.id)}','done')">Mark Done</button> <button class="inline" onclick="setProjectTodoStatus('${escapeJs(todo.id)}','open')">Reopen</button> <button class="inline" onclick="deleteProjectTodo('${escapeJs(todo.id)}')">Delete</button><h3>Files</h3><ul>${assets}</ul>`;
     }
@@ -5043,7 +5536,7 @@ INDEX_HTML = r"""<!doctype html>
       renderChoreRecurrenceControls();
       document.getElementById('choreList').innerHTML = chores.length
         ? chores.slice().reverse().map(chore => `<div class="todo-row"><strong>${escapeHtml(chore.title)}</strong><br><span class="muted">${escapeHtml(chore.status || 'open')} | due ${escapeHtml(chore.due_date || '')} | ${escapeHtml(chore.recurrence || 'one-off')}</span><br><span>${escapeHtml(chore.notes || '')}</span><br><button class="inline" onclick="setChoreStatus('${escapeJs(chore.id)}','done')">Done</button> <button class="inline" onclick="setChoreStatus('${escapeJs(chore.id)}','open')">Reopen</button> <button class="inline" onclick="deleteChore('${escapeJs(chore.id)}')">Delete</button></div>`).join('')
-        : '<p class="muted">No chores yet.</p>';
+        : emptyState('No chores yet.', 'Add one-off or recurring chores here.');
     }
 
     function renderChoreRecurrenceControls() {
@@ -5127,21 +5620,21 @@ INDEX_HTML = r"""<!doctype html>
             const diff = Number(item.par || 0) - Number(item.on_hand || 0);
             return `<tr><td>${escapeHtml(item.name)}</td><td><input id="onhand-${escapeHtml(item.id)}" type="number" min="0" step="0.01" value="${escapeHtml(item.on_hand || 0)}"></td><td>${escapeHtml(item.par || 0)} ${escapeHtml(item.unit_label || '')}</td><td>${escapeHtml(diff.toFixed(2))}</td><td>${escapeHtml(item.container_size || 1)} ${escapeHtml(item.unit_label || '')}</td><td>$${escapeHtml(Number(item.cost_per_container || 0).toFixed(2))}</td><td><button class="inline" onclick="adjustInventory('${escapeJs(item.id)}',1)">+</button> <button class="inline" onclick="adjustInventory('${escapeJs(item.id)}',-1)">-</button> <button class="inline" onclick="saveInventoryOnHand('${escapeJs(item.id)}')">Save</button> <button class="inline danger" onclick="deleteInventoryItem('${escapeJs(item.id)}')">Delete</button></td></tr>`;
           }).join('')}</tbody></table></div>`
-        : '<p class="muted">No inventory items yet.</p>';
+        : emptyState('No inventory items yet.', 'Add pantry or shopping inventory to build the list.');
     }
 
     function renderDietShoppingList() {
       const items = ((state.diet || {}).shopping_list || []);
       document.getElementById('dietShoppingList').innerHTML = items.length
         ? `<div class="scrollbox"><table><thead><tr><th>Item</th><th>Need</th><th>Containers</th><th>Cost</th></tr></thead><tbody>${items.map(item => `<tr><td>${escapeHtml(item.name)}</td><td>${escapeHtml(item.needed_units)} ${escapeHtml(item.unit_label)}</td><td>${escapeHtml(item.containers)}</td><td>$${escapeHtml(Number(item.cost || 0).toFixed(2))}</td></tr>`).join('')}</tbody></table></div>`
-        : '<p class="muted">Shopping list is empty.</p>';
+        : emptyState('Shopping list is empty.', 'Low inventory items will appear here.');
     }
 
     function renderFoodDiary() {
       const entries = ((state.diet || {}).food_diary || []);
       document.getElementById('foodDiaryList').innerHTML = entries.length
         ? renderSimpleList(entries.slice().reverse(), item => `${item.date || ''} | ${item.food || ''} | carbs ${item.carbs ? 'yes' : 'no'} | sugars ${item.sugars ? 'yes' : 'no'}`)
-        : '<p class="muted">No food entries yet.</p>';
+        : emptyState('No food entries yet.', 'Add food diary entries or import CSV rows.');
     }
 
     async function createDietInventoryItem() {
@@ -5226,8 +5719,7 @@ INDEX_HTML = r"""<!doctype html>
       const text = items.length
         ? items.map(item => `${item.name}: ${item.containers} container(s), ${item.needed_units} ${item.unit_label}, est. $${Number(item.cost || 0).toFixed(2)}`).join('\n')
         : 'Shopping list is empty.';
-      await navigator.clipboard.writeText(text);
-      setStatus('Shopping list copied.');
+      await copyToClipboard(text, 'Copied shopping list.', 'Could not copy shopping list.');
     }
 
     function allCalendarEvents() {
@@ -5272,8 +5764,8 @@ INDEX_HTML = r"""<!doctype html>
       renderCalendarGrid(allEvents);
       const events = (calendar.events || []).slice().sort((a, b) => String(a.date || '').localeCompare(String(b.date || '')));
       document.getElementById('calendarList').innerHTML = events.length
-        ? `<div class="scrollbox"><table><thead><tr><th>Date</th><th>Category</th><th>Title</th><th>Source</th><th>Notes</th><th>Actions</th></tr></thead><tbody>${events.map(event => `<tr ondblclick="openCalendarEvent('${escapeJs(event.id)}')"><td>${escapeHtml(event.date || '')}</td><td>${escapeHtml(event.category || '')}</td><td>${escapeHtml(event.title || '')}</td><td>${escapeHtml(event.source_id || '')}</td><td>${escapeHtml(event.notes || '')}</td><td><button class="inline" onclick="editCalendarEvent('${escapeJs(event.id)}')">Edit</button> <button class="inline danger" onclick="deleteCalendarEvent('${escapeJs(event.id)}')">Delete</button></td></tr>`).join('')}</tbody></table></div>`
-        : '<p class="muted">No scheduled items.</p>';
+        ? `<div class="scrollbox"><table><thead><tr><th>Date</th><th>Category</th><th>Title</th><th>Source</th><th>Notes</th><th>Actions</th></tr></thead><tbody>${events.map(event => `<tr ondblclick="openCalendarEvent('${escapeJs(event.id)}')"><td>${escapeHtml(event.date || '')}</td><td>${escapeHtml(event.category || '')}</td><td>${escapeHtml(event.title || '')}</td><td>${escapeHtml(event.source_id || 'manual')}</td><td>${escapeHtml(event.notes || '')}</td><td><button class="inline" onclick="editCalendarEvent('${escapeJs(event.id)}')">Edit</button> <button class="inline danger" onclick="deleteCalendarEvent('${escapeJs(event.id)}')">Delete</button></td></tr>`).join('')}</tbody></table></div>`
+        : emptyState('No saved calendar items.', 'Generated items still appear on the month grid when source data has dates.');
     }
 
     function renderCalendarSourceOptions() {
@@ -5323,7 +5815,7 @@ INDEX_HTML = r"""<!doctype html>
         current.setDate(start.getDate() + index);
         const key = formatDateKey(current);
         const dayEvents = byDate[key] || [];
-        const visible = dayEvents.slice(0, 4).map(event => `<span class="calendar-event ${event.generated ? 'generated' : ''}" title="${escapeHtml(event.notes || '')}" ondblclick="openCalendarEvent('${escapeJs(event.id)}')">${escapeHtml(event.title || '')}</span>`).join('');
+        const visible = dayEvents.slice(0, 4).map(event => `<span class="calendar-event ${event.generated ? 'generated' : ''}" title="${escapeHtml(calendarEventLabel(event))}" ondblclick="openCalendarEvent('${escapeJs(event.id)}')">${escapeHtml(calendarEventLabel(event))}</span>`).join('');
         const more = dayEvents.length > 4 ? `<span class="muted">+${dayEvents.length - 4} more</span>` : '';
         cells.push(`<div class="calendar-day ${current.getMonth() === month ? '' : 'outside'}"><span class="calendar-date">${current.getDate()}</span>${visible}${more}</div>`);
       }
@@ -5459,10 +5951,10 @@ INDEX_HTML = r"""<!doctype html>
         <div class="panel"><h3>Today's Directive</h3><div class="metric">${escapeHtml(summary.todays_directive || '')}</div><p class="muted">${escapeHtml(summary.evie_note || '')}</p></div>
         <div class="panel"><h3>Open Orders</h3><div class="metric">${escapeHtml(summary.open_orders || 0)}</div><p class="muted">History ${escapeHtml(summary.history_count || 0)}</p></div>
       </div>`;
-      document.getElementById('fitnessOrders').innerHTML = (fitness.orders || []).map(order => `<div class="todo-row"><strong>${escapeHtml(order.title)}</strong> <span class="pill">${escapeHtml(order.status || 'open')}</span><p class="muted">${escapeHtml(order.details || '')}</p><button class="inline primary" onclick="updateFitnessOrder('${escapeJs(order.id)}','done')">Mark Done</button> <button class="inline" onclick="updateFitnessOrder('${escapeJs(order.id)}','snoozed')">Snooze</button> <button class="inline" onclick="rescheduleFitnessOrder('${escapeJs(order.id)}')">Reschedule</button> <button class="inline" onclick="skipFitnessOrder('${escapeJs(order.id)}')">Skip with Reason</button></div>`).join('') || '<p class="muted">No orders.</p>';
+      document.getElementById('fitnessOrders').innerHTML = (fitness.orders || []).map(order => `<div class="todo-row"><strong>${escapeHtml(order.title)}</strong> <span class="pill">${escapeHtml(order.status || 'open')}</span><p class="muted">${escapeHtml(order.details || '')}</p><button class="inline primary" onclick="updateFitnessOrder('${escapeJs(order.id)}','done')">Mark Done</button> <button class="inline" onclick="updateFitnessOrder('${escapeJs(order.id)}','snoozed')">Snooze</button> <button class="inline" onclick="rescheduleFitnessOrder('${escapeJs(order.id)}')">Reschedule</button> <button class="inline" onclick="skipFitnessOrder('${escapeJs(order.id)}')">Skip with Reason</button></div>`).join('') || emptyState('No fitness orders yet.', 'Orders and rebuild tasks will appear here.');
       renderFitnessPlan(fitness);
       document.getElementById('fitnessProgress').innerHTML = renderSimpleList((fitness.progress_notes || []).slice().reverse(), item => `${item.date || ''} | ${item.note || item.notes || ''}`);
-      document.getElementById('fitnessChallenges').innerHTML = (fitness.challenges || []).map(challenge => `<div class="todo-row"><strong>${escapeHtml(challenge.name)}</strong> <span class="pill">${escapeHtml(challenge.status)}</span><p class="muted">${escapeHtml(challenge.requirements || '')}</p><button class="inline primary" onclick="updateFitnessChallenge('${escapeJs(challenge.id)}','started')">Start Challenge</button> <button class="inline" onclick="updateFitnessChallenge('${escapeJs(challenge.id)}','completed')">Complete Challenge</button></div>`).join('') || '<p class="muted">No challenges.</p>';
+      document.getElementById('fitnessChallenges').innerHTML = (fitness.challenges || []).map(challenge => `<div class="todo-row"><strong>${escapeHtml(challenge.name)}</strong> <span class="pill">${escapeHtml(challenge.status)}</span><p class="muted">${escapeHtml(challenge.requirements || '')}</p><button class="inline primary" onclick="updateFitnessChallenge('${escapeJs(challenge.id)}','started')">Start Challenge</button> <button class="inline" onclick="updateFitnessChallenge('${escapeJs(challenge.id)}','completed')">Complete Challenge</button></div>`).join('') || emptyState('No challenges yet.', 'Fitness challenges will appear here when added.');
       document.getElementById('fitnessHistory').innerHTML = renderSimpleList((fitness.history || []).slice().reverse(), item => `${item.date || ''} | ${item.title || item.kind || ''} | ${item.status || ''}`);
     }
 
@@ -5782,8 +6274,11 @@ INDEX_HTML = r"""<!doctype html>
       }
       const res = await fetch(`/api/companion/${encodeURIComponent(companion)}/handoff`);
       const data = await handleResponse(res, false);
-      await navigator.clipboard.writeText(encodeBase64Text(councilQuestionText(companion, data.handoff || '')));
-      setStatus(`Copied encoded council question for ${companion}.`);
+      await copyToClipboard(
+        encodeBase64Text(councilQuestionText(companion, data.handoff || '')),
+        `Copied encoded council question for ${companion}.`,
+        `Could not copy council question for ${companion}.`
+      );
     }
 
     async function copyAllCouncilQuestions() {
@@ -5797,8 +6292,7 @@ INDEX_HTML = r"""<!doctype html>
         const data = await handleResponse(res, false);
         sections.push(`${companion.name}\n${encodeBase64Text(councilQuestionText(companion.name, data.handoff || ''))}`);
       }
-      await navigator.clipboard.writeText(sections.join('\n\n'));
-      setStatus(`Copied encoded council questions for ${sections.length} companion(s).`);
+      await copyToClipboard(sections.join('\n\n'), `Copied encoded council questions for ${sections.length} companion(s).`, 'Could not copy council questions.');
     }
 
     function importCouncilAnswer(companion, index) {
@@ -5827,8 +6321,7 @@ INDEX_HTML = r"""<!doctype html>
       }
       const question = document.getElementById('councilQuestion').value.trim();
       const summary = `${question ? `# Council Question\n${question}\n\n` : ''}# Consolidated Council Answer\n\n${sections.join('\n\n')}`;
-      await navigator.clipboard.writeText(summary);
-      setStatus(`Copied consolidated answer from ${sections.length} companion(s).`);
+      await copyToClipboard(summary, `Copied consolidated answer from ${sections.length} companion(s).`, 'Could not copy council summary.');
     }
 
     function renderCouncil() {
@@ -5846,17 +6339,17 @@ INDEX_HTML = r"""<!doctype html>
     }
 
     function renderSimpleList(items, formatter) {
-      if (!items.length) return '<p class="muted">No entries.</p>';
+      if (!items.length) return emptyState('No entries yet.', 'Saved entries will appear here.');
       return '<div class="scrollbox"><table><tbody>' + items.map(item => `<tr><td>${escapeHtml(formatter(item))}</td></tr>`).join('') + '</tbody></table></div>';
     }
 
     function renderCheckins(items) {
-      if (!items.length) return '<p class="muted">No entries.</p>';
+      if (!items.length) return emptyState('No check-ins yet.', 'Saved daily check-ins will appear here.');
       return '<div class="scrollbox"><table><tbody>' + items.slice().reverse().map(item => `<tr><td>${renderCheckinCard(item)}</td></tr>`).join('') + '</tbody></table></div>';
     }
 
     function renderJournalList(items) {
-      if (!items.length) return '<p class="muted">No entries.</p>';
+      if (!items.length) return emptyState('No journal entries yet.', 'Saved journal entries will appear here.');
       return '<div class="scrollbox"><table><tbody>' + items.slice().reverse().map((item, index) => `<tr><td><button class="inline" onclick="openJournalEntry(${items.length - 1 - index})">Open</button> <strong>${escapeHtml(item.timestamp || '')}</strong> <span class="muted">mood ${escapeHtml(item.mood || '')}</span></td></tr>`).join('') + '</tbody></table></div>';
     }
 
@@ -5967,6 +6460,39 @@ INDEX_HTML = r"""<!doctype html>
     }
 
     function setStatus(text) { document.getElementById('status').textContent = text; }
+    async function copyToClipboard(text, successMessage, failureMessage = 'Clipboard access is blocked.') {
+      try {
+        await navigator.clipboard.writeText(text || '');
+        setStatus(successMessage);
+        return true;
+      } catch (error) {
+        setStatus(`${failureMessage} ${error.message || ''}`.trim());
+        return false;
+      }
+    }
+    function emptyState(title, detail = '') {
+      return `<div class="empty-state"><strong>${escapeHtml(title)}</strong>${detail ? `<span>${escapeHtml(detail)}</span>` : ''}</div>`;
+    }
+    function tableEmpty(columns, title, detail = '') {
+      return `<tr><td colspan="${columns}">${emptyState(title, detail)}</td></tr>`;
+    }
+    function splitTagText(value) {
+      return String(value || '').split(/[,;]/).map(tag => tag.trim()).filter(Boolean);
+    }
+    function formatDirectiveDue(value) {
+      const text = String(value || '').trim();
+      if (!text) return 'No due date';
+      if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return text;
+      if (/^\d{1,2}:\d{2}(\s?[AP]M)?$/i.test(text)) return `Time only: ${text}`;
+      const normalized = text.replace('T', ' ');
+      const match = normalized.match(/^(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2})/);
+      return match ? `${match[1]} ${match[2]}` : text;
+    }
+    function calendarEventLabel(event) {
+      const category = (event.category || 'general').replaceAll('_', ' ');
+      const source = event.source_id ? `#${event.source_id}` : 'manual';
+      return `${category}: ${event.title || 'Untitled'} (${source})`;
+    }
     function normalizeDateTimeLocal(value) {
       const text = String(value || '').trim();
       if (!text) return '';
@@ -6161,6 +6687,16 @@ class CompanionWebHandler(BaseHTTPRequestHandler):
                         return
                     directive = parse_directive_text(self.read_json_body())
                     self.send_json({"message": "Parsed directive draft.", "directive": directive})
+                elif path == "/api/directives/import/preview":
+                    if not self.require_companion_access():
+                        return
+                    preview = directive_export_preview(self.read_json_body().get("packet", ""))
+                    self.send_json({"message": "Directive import preview ready.", **preview})
+                elif path == "/api/directives/import":
+                    if not self.require_companion_access():
+                        return
+                    result = merge_directive_export(self.read_json_body().get("packet", ""))
+                    self.send_json(result)
                 elif path == "/api/proof":
                     if not self.require_companion_access():
                         return
@@ -6476,7 +7012,10 @@ class CompanionWebHandler(BaseHTTPRequestHandler):
             return
 
         data = self.read_json_body()
-        if action == "commands":
+        if action == "commands" and len(parts) > 4 and parts[4] == "preview":
+            preview = command_batch_preview(data.get("commands", ""))
+            self.send_json({"message": "Command preview ready.", **preview})
+        elif action == "commands":
             result = apply_commands(companion, data.get("commands", ""))
             memory_count = len(result["applied"]) - len(result["directives"])
             directive_count = len(result["directives"])

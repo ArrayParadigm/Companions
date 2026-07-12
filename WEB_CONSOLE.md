@@ -53,10 +53,16 @@ http://127.0.0.1:8787
 - `Download Packet` saves the raw base64 packet as a `.txt` file, also
   excluding archived memories.
 - `Apply Commands` accepts companion memory and directive command batches.
+  `Preview Commands` reports add/update/archive/unarchive/resave/delete and
+  directive counts before apply without displaying decoded memory text.
 - The ID-only memory index exposes IDs, categories, status, weights, tags, and timestamps, but not memory content.
-- Directive Ledger stores companion-issued directives and shows date added plus task details in readable plaintext.
+- Directive Ledger stores companion-issued directives with type, tags, default
+  `America/Chicago` timezone metadata, normalized due display, and readable long
+  details.
 - Directive Export copies active directives and directives touched or due within
-  the last month as a base64 JSON packet.
+  the last month as a base64 JSON packet. Directive Import previews packet
+  IDs/titles/statuses/types only, skips duplicate directives, merges without
+  deleting existing ledger entries, and backs up directive data before writing.
 - Directive commands also write a compact history memory into the issuer
   companion packet when the issuer is configured. Packet export backfills any
   missing issuer directive memories and keeps them active until the companion
@@ -69,7 +75,9 @@ http://127.0.0.1:8787
   Command Center: Summary, Today's Orders, Workout Plan, Mobility, Cardio,
   Strength, Progress, Challenges, Body Metrics, and History.
 - Spiritual owns daily reading, extra reading, persistent Bible chapter progress, and prayer categories for gratitude, requests, repentance, service, and closeness.
-- Projects has Home Maintenance, Vehicle Maintenance, and Tech Projects tabs plus a category selector; Chores is a project category, not a tab.
+- Projects has Home Maintenance, Vehicle Maintenance, and Tech Projects tabs
+  plus category, status, and sort controls; Chores is a project category, not a
+  tab.
 - Chores is a main navigation category with its own chore list and structured
   one-off, weekly, bi-weekly, or monthly recurrence controls.
 - Diet is a main navigation category with Summary, Inventory, Shopping List, and Food Diary tabs.
@@ -78,7 +86,8 @@ http://127.0.0.1:8787
   diary, Spiritual items, and Array-only Companion Directives; generated source
   items and recurring chores appear on the grid without becoming editable saved
   events. Diet shopping-list needs do not appear on the calendar, and
-  double-clicking a calendar item opens the saved event or relevant source
+  generated labels include source category, due title, and source ID.
+  Double-clicking a calendar item opens the saved event or relevant source
   surface.
 - Diet inventory tracks on-hand, par, reorder thresholds, container quantity,
   and cost per container; items can be deleted after confirmation, and the
@@ -108,6 +117,7 @@ unarchive ID
 resave ID
 delete ID
 directive - task title | priority=3 | due=YYYY-MM-DD HH:MM | proof=true | details=task details
+directive - task title | type=project | tags=repo,deploy | timezone=America/Chicago | due=2026-07-12 15:00
 ```
 
 See `COMMANDS.md` for the full command reference.
@@ -118,8 +128,10 @@ The older style is also accepted:
 add: category - memory text
 ```
 
-Directive commands can be mixed with memory commands in the same batch. The selected
-companion is used as the directive issuer unless the line includes `issuer=Name`.
+Directive commands can be mixed with memory commands in the same batch. The
+selected companion is used as the directive issuer unless the line includes
+`issuer=Name`. Companion handoffs ask for base64-encoded UTF-8 command batches
+by default for opaque transfer, but plaintext commands are still accepted.
 
 Archive behavior:
 
