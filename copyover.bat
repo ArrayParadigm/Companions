@@ -165,7 +165,7 @@ REM Server helper scripts/docs for the copy target.
   echo python3 Companion_Web.py --host 127.0.0.1 --port 8787
   echo ```
   echo.
-  echo For public/subdomain use, put this behind Apache HTTPS, authentication, and a reverse proxy.
+  echo For public/subdomain use, put this behind Apache HTTPS and the app profile login.
   echo.
   echo First-time Linux server setup:
   echo.

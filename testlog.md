@@ -1,5 +1,40 @@
 # Test Log
 
+## 2026-07-12 - 0.1.17.3 Signed-Out Auth Shell Fix
+
+| Severity | Area | Result | Notes |
+| --- | --- | --- | --- |
+| Info | Static compile | Pass | `python -m py_compile Companion_Web.py Memory_Manager.py` passed. |
+| Info | Compileall | Pass | `python -m compileall -q Companion_Web.py Memory_Manager.py` passed. |
+| Info | JSON validation | Pass | `companion-files.json`, `control_data/*.json`, and `tracker_data/*.json` parse successfully across 15 files. |
+| Info | Signed-out shell marker gate | Pass | Static search confirmed Dashboard content is separated from auth controls, hidden when signed out, and protected category/admin/companion elements are hidden in logged-out state. |
+| Info | Copyover check | Pass | `cmd /c copyover.bat --check` detected `D:\000_Files\002_Projects\EVE\MS\Companions-1`, version `0.1.17.3`, and copied no files. |
+| Info | Whitespace gate | Pass | `git diff --check` reported no whitespace errors; Git only warned that edited text files will be normalized from LF to CRLF when touched. |
+
+## 2026-07-12 - 0.1.17.2 In-App Session Feedback Fix
+
+| Severity | Area | Result | Notes |
+| --- | --- | --- | --- |
+| Info | Static compile | Pass | `python -m py_compile Companion_Web.py Memory_Manager.py` passed. |
+| Info | Compileall | Pass | `python -m compileall -q Companion_Web.py Memory_Manager.py` passed. |
+| Info | JSON validation | Pass | `companion-files.json`, `control_data/*.json`, and `tracker_data/*.json` parse successfully across 15 files. |
+| Info | Session UI marker gate | Pass | Static search confirmed the Dashboard Session panel, session summary renderer, login/register panel toggles, and category access badges are present. |
+| Info | Session data smoke | Pass | Temporary isolated data verified `Array` with empty legacy access still produces full public profile access, full `/api/state` category access, and companion access for the Session panel. |
+| Info | Copyover check | Pass | `cmd /c copyover.bat --check` detected `D:\000_Files\002_Projects\EVE\MS\Companions-1`, version `0.1.17.2`, and copied no files. |
+| Info | Whitespace gate | Pass | `git diff --check` reported no whitespace errors; Git only warned that edited text files will be normalized from LF to CRLF when touched. |
+
+## 2026-07-12 - 0.1.17.1 Regression Fix
+
+| Severity | Area | Result | Notes |
+| --- | --- | --- | --- |
+| Info | Static compile | Pass | `python -m py_compile Companion_Web.py Memory_Manager.py` passed. |
+| Info | Compileall | Pass | `python -m compileall -q Companion_Web.py Memory_Manager.py` passed. |
+| Info | JSON validation | Pass | `companion-files.json`, `control_data/*.json`, and `tracker_data/*.json` parse successfully across 15 files. |
+| Info | Auth/category smoke | Pass | Temporary isolated data verified unauthenticated session state, stale `Array` access still resolves to all categories plus companion/proof/directive access, and a non-owner profile only receives explicitly granted categories. |
+| Info | Apache auth static check | Pass | `deploy_scripts/linux_setup_subdomain.sh` defaults `REQUIRE_BASIC_AUTH` to `0`, retains the explicit `REQUIRE_BASIC_AUTH=1` override guard, and keeps the optional Basic Auth block available only when requested. |
+| Info | Copyover check | Pass | `cmd /c copyover.bat --check` detected `D:\000_Files\002_Projects\EVE\MS\Companions-1`, version `0.1.17.1`, and copied no files. |
+| Info | Whitespace gate | Pass | `git diff --check` reported no whitespace errors; Git only warned that edited text files will be normalized from LF to CRLF when touched. |
+
 ## 2026-07-12 - 0.1.17.0 TODO Sprint
 
 | Severity | Area | Result | Notes |

@@ -312,13 +312,16 @@ def admin_update_user_profile(name, data):
 
 def public_profile(profile):
     normalized = normalize_profile_record(profile)
+    access = default_access(normalized.get("name"))
+    if not is_array_profile(normalized.get("name")):
+        access.update({key: clean_bool(value) for key, value in dict(normalized.get("access") or {}).items() if key in ACCESS_CATEGORIES})
     return {
         "name": normalized.get("name", ""),
         "display_name": normalized.get("display_name") or normalized.get("name", ""),
         "role": normalized.get("role", "user"),
         "approved": clean_bool(normalized.get("approved")),
         "active": clean_bool(normalized.get("active")),
-        "access": normalized.get("access", default_access(normalized.get("name"))),
+        "access": access,
         "has_password": bool(normalized.get("password_hash")),
     }
 
@@ -471,6 +474,8 @@ def active_has_companion_access():
 
 def active_access_map():
     profile = active_profile()
+    if is_array_profile(profile.get("name")):
+        return default_access(profile.get("name"))
     access = default_access(profile.get("name"))
     access.update({key: clean_bool(value) for key, value in dict(profile.get("access") or {}).items() if key in ACCESS_CATEGORIES})
     return access
@@ -3368,7 +3373,15 @@ INDEX_HTML = r"""<!doctype html>
     </nav>
     <section id="dashboard" class="active">
       <div class="grid" id="authPanel">
-        <div class="panel">
+        <div class="panel full" id="sessionPanel" style="display:none;">
+          <h2>Session</h2>
+          <div id="sessionSummary"></div>
+          <div class="row" style="margin-top: 10px;">
+            <button class="inline primary" onclick="document.querySelector('button[data-tab=profileSettings]').click()">Profile Settings</button>
+            <button class="inline" onclick="document.getElementById('profileLogoutButton').click()">Log Out</button>
+          </div>
+        </div>
+        <div class="panel" id="loginPanel">
           <h2>Sign In</h2>
           <label>Profile</label>
           <select id="loginProfileSelect"></select>
@@ -3376,7 +3389,7 @@ INDEX_HTML = r"""<!doctype html>
           <input id="loginPassword" type="password">
           <button class="inline primary" id="profileLoginButton">Log In</button>
         </div>
-        <div class="panel">
+        <div class="panel" id="registerPanel">
           <h2>Register Profile</h2>
           <label>Profile name</label>
           <input id="profileRegisterName">
@@ -3385,7 +3398,7 @@ INDEX_HTML = r"""<!doctype html>
           <button class="inline" id="profileRegisterButton">Register</button>
         </div>
       </div>
-      <div class="dashboard-grid">
+      <div class="dashboard-grid" id="dashboardContent">
         <button class="panel todo-row" onclick="document.querySelector('button[data-tab=memory]').click()" data-companion-only>
           <h2>Memory Manager</h2>
           <div class="metric" id="dashCompanions">0</div>
@@ -4215,7 +4228,28 @@ INDEX_HTML = r"""<!doctype html>
       document.getElementById('activeProfileLabel').textContent = sessionInfo.authenticated && sessionInfo.profile ? `Signed in: ${sessionInfo.profile.display_name || sessionInfo.profile.name}` : '';
       document.getElementById('profileLogoutButton').style.display = sessionInfo.authenticated ? '' : 'none';
       document.getElementById('profileSettingsButton').style.display = sessionInfo.authenticated ? '' : 'none';
-      document.getElementById('authPanel').style.display = sessionInfo.authenticated ? 'none' : '';
+      document.getElementById('authPanel').style.display = '';
+      document.getElementById('sessionPanel').style.display = sessionInfo.authenticated ? '' : 'none';
+      document.getElementById('loginPanel').style.display = sessionInfo.authenticated ? 'none' : '';
+      document.getElementById('registerPanel').style.display = sessionInfo.authenticated ? 'none' : '';
+      document.getElementById('dashboardContent').style.display = sessionInfo.authenticated ? '' : 'none';
+      renderSessionSummary();
+    }
+
+    function renderSessionSummary() {
+      const target = document.getElementById('sessionSummary');
+      if (!target) return;
+      if (!sessionInfo || !sessionInfo.authenticated || !sessionInfo.profile) {
+        target.innerHTML = '<p class="muted">Not signed in.</p>';
+        return;
+      }
+      const profile = sessionInfo.profile || {};
+      const access = (state && state.access) || profile.access || {};
+      const categories = Object.entries(sessionInfo.access_categories || {})
+        .map(([key, label]) => `<span class="pill">${escapeHtml(label)}: ${access[key] ? 'on' : 'off'}</span>`)
+        .join('');
+      const companionAccess = access.companions ? '<span class="pill">Companion: on</span>' : '<span class="pill">Companion: off</span>';
+      target.innerHTML = `<p><strong>Signed in as ${escapeHtml(profile.display_name || profile.name || '')}</strong></p><p class="muted">${escapeHtml(profile.role || 'profile')}</p><div>${companionAccess}${categories}</div>`;
     }
 
     function applyLoggedOutState() {
@@ -4223,6 +4257,14 @@ INDEX_HTML = r"""<!doctype html>
       document.querySelectorAll('nav button').forEach(button => {
         button.style.display = button.dataset.tab === 'dashboard' ? '' : 'none';
       });
+      document.querySelectorAll('[data-companion-only], [data-admin-only], [data-access-category]').forEach(element => {
+        element.style.display = 'none';
+      });
+      document.getElementById('authPanel').style.display = '';
+      document.getElementById('sessionPanel').style.display = 'none';
+      document.getElementById('loginPanel').style.display = '';
+      document.getElementById('registerPanel').style.display = '';
+      document.getElementById('dashboardContent').style.display = 'none';
       document.querySelectorAll('section').forEach(section => section.classList.remove('active'));
       document.querySelector('button[data-tab="dashboard"]').classList.add('active');
       document.getElementById('dashboard').classList.add('active');

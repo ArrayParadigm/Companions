@@ -19,11 +19,13 @@ python Companion_Web.py --host 127.0.0.1 --port 8787
 
 ## Pages And Tabs
 
-- Dashboard: profile login and registration when signed out, plus summary cards
+- Dashboard: profile login and registration when signed out. Protected dashboard
+  category content is hidden until login. After login, the Session panel shows
+  the signed-in profile and enabled category access, followed by summary cards
   for companion packets, directives, spiritual progress, fitness, diet,
   projects, chores, calendar, integrity, work categories, and latest daily
-  check-in after login. If a session times out from inactivity, protected pages
-  hide and the console returns to Dashboard.
+  check-in. If a session times out from inactivity, protected pages hide and the
+  console returns to Dashboard login.
 - Companion: Array-only packet management. The Memory tab copies opaque packets
   and handoffs, downloads packet text files, adds memories, applies command
   batches, opens the New Companion dialog from the companion tab bar, shows an
@@ -55,6 +57,14 @@ python Companion_Web.py --host 127.0.0.1 --port 8787
 - Profile Settings: signed-in display-name and password changes.
 - Admin: Array-only profile approval, activation, access toggles, password
   resets, and session timeout configuration.
+
+## Public Site Authentication
+
+Use the app's own profile login on the Dashboard. The Apache deployment helper
+does not enable browser Basic Auth by default; if an existing live vhost still
+shows a browser username/password popup, remove the Basic Auth directives from
+the Companion site's `<Location />` block only, then run `apache2ctl configtest`
+and reload Apache.
 
 ## Companion Packet Functions
 

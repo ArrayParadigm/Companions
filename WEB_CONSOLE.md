@@ -34,12 +34,18 @@ http://127.0.0.1:8787
 - Profiles use local password login. `Array` bootstraps the first password, sees
   Admin controls near the login area, and is the only profile that receives
   Companion, Directive, Proof, Council, and Admin access.
+- The public site should not require a browser Basic Auth popup. The correct
+  login is the app profile login on Dashboard; Apache Basic Auth remains
+  available only as an explicit deploy override.
 - Register creates an inactive, unapproved local account. Array approves or
   deactivates accounts, resets passwords, toggles per-category access, and
   changes the global inactivity timeout.
 - Logged-in users can change their own password when they know the current one.
 - Dashboard is the signed-out entry point for login and registration; Home is
-  no longer a separate navigation tab.
+  no longer a separate navigation tab. After login, Dashboard keeps a Session
+  panel visible with the signed-in profile and server-side category access.
+  Signed-out users see only the Dashboard auth controls, not protected category
+  content.
 - New companions can be created from the companion tab bar with a popup; this
   writes a live server memory packet and updates the live companion registry.
 - `Copy Handoff` gives a companion plain instructions plus its encoded packet.
@@ -149,8 +155,21 @@ excludes them so code deploys do not overwrite newly added website data.
 ## Deployment Note
 
 The console now has local password authentication, but it remains a private
-tool. A future private subdomain such as `companions.paradigmlabs.dev` should
-still sit behind careful network controls.
+tool. A private subdomain such as `companions.paradigmlabs.dev` should use
+Apache HTTPS and the app profile login by default, not browser Basic Auth.
+
+If the live site shows a browser username/password popup, remove the Basic Auth
+directives from only the Companion site's Apache vhost:
+
+```bash
+sudo apache2ctl -S
+sudoedit /etc/apache2/sites-available/memorymanager.conf
+sudo apache2ctl configtest
+sudo systemctl reload apache2
+```
+
+Remove `AuthType Basic`, `AuthName`, `AuthUserFile`, and `Require valid-user`
+from the Companion `<Location />` block. Do not edit unrelated Apache sites.
 
 ## Windows-To-Linux Deploy Flow
 

@@ -1,5 +1,36 @@
 # Changelog
 
+## 0.1.17.3 - 2026-07-12
+
+### Fixed
+
+- Restored the signed-out auth landing behavior so unauthenticated users only see Dashboard login/register controls and no protected dashboard category content.
+- Bumped the release file to `Version-0.1.17.3.md`.
+
+## 0.1.17.2 - 2026-07-12
+
+### Added
+
+- Added a Dashboard Session panel that plainly shows the signed-in profile and server-side category access state.
+
+### Changed
+
+- Kept the Dashboard auth area visible after login so session status remains visible instead of disappearing with the login form.
+- Bumped the release file to `Version-0.1.17.2.md`.
+
+## 0.1.17.1 - 2026-07-12
+
+### Changed
+
+- Disabled Apache Basic Auth by default in the Linux subdomain setup so the public site uses the app's Dashboard profile login instead of a browser popup.
+- Documented live Apache cleanup steps for removing existing Basic Auth directives from the Companion vhost only.
+- Bumped the release file to `Version-0.1.17.1.md`.
+
+### Fixed
+
+- Treated `Array` as full-access server-side even when older live profile data is missing or carrying stale category toggles.
+- Kept public profile access metadata aligned with owner full-access behavior so category navigation rebuilds correctly after login.
+
 ## 0.1.17.0 - 2026-07-12
 
 ### Added
