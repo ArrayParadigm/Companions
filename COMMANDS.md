@@ -130,8 +130,9 @@ control_data/calendar.json
 
 The Calendar also renders generated, non-editable items from accessible source
 data such as Fitness groups/orders, Project due dates, Chore due dates and
-recurrences, Diet shopping needs, Spiritual daily reading, and Array-only
-Directive due dates.
+recurrences, Spiritual daily reading, and Array-only Directive due dates. Diet
+shopping needs are intentionally excluded because there is no set shopping day.
+Double-click a calendar item to open its saved event or relevant source surface.
 
 ## Fitness Data
 

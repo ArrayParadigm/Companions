@@ -38,7 +38,10 @@ http://127.0.0.1:8787
   deactivates accounts, resets passwords, toggles per-category access, and
   changes the global inactivity timeout.
 - Logged-in users can change their own password when they know the current one.
-- New companions can be created from the Companion Memory tab; this writes a live server memory packet and updates the live companion registry.
+- Dashboard is the signed-out entry point for login and registration; Home is
+  no longer a separate navigation tab.
+- New companions can be created from the companion tab bar with a popup; this
+  writes a live server memory packet and updates the live companion registry.
 - `Copy Handoff` gives a companion plain instructions plus its encoded packet.
 - `Copy Packet` gives only the raw base64 packet, excluding archived memories.
 - `Download Packet` saves the raw base64 packet as a `.txt` file, also
@@ -46,6 +49,8 @@ http://127.0.0.1:8787
 - `Apply Commands` accepts companion memory and directive command batches.
 - The ID-only memory index exposes IDs, categories, status, weights, tags, and timestamps, but not memory content.
 - Directive Ledger stores companion-issued directives and shows date added plus task details in readable plaintext.
+- Directive Export copies active directives and directives touched or due within
+  the last month as a base64 JSON packet.
 - Directive commands also write a compact history memory into the issuer
   companion packet when the issuer is configured. Packet export backfills any
   missing issuer directive memories and keeps them active until the companion
@@ -63,10 +68,12 @@ http://127.0.0.1:8787
   one-off, weekly, bi-weekly, or monthly recurrence controls.
 - Diet is a main navigation category with Summary, Inventory, Shopping List, and Food Diary tabs.
 - Calendar is a literal month grid. Saved events can link to accessible source
-  items such as Fitness workout groups/orders, Projects, Chores, Diet,
-  Spiritual items, and Array-only Companion Directives; generated source items
-  and recurring chores appear on the grid without becoming editable saved
-  events.
+  items such as Fitness workout groups/orders, Projects, Chores, Diet food
+  diary, Spiritual items, and Array-only Companion Directives; generated source
+  items and recurring chores appear on the grid without becoming editable saved
+  events. Diet shopping-list needs do not appear on the calendar, and
+  double-clicking a calendar item opens the saved event or relevant source
+  surface.
 - Diet inventory tracks on-hand, par, reorder thresholds, container quantity,
   and cost per container; items can be deleted after confirmation, and the
   shopping list is generated from the remaining low inventory.
@@ -80,7 +87,9 @@ http://127.0.0.1:8787
   directive cards; non-owner profiles only see their own check-ins, spiritual,
   fitness, projects, chores, and diet surfaces.
 - Directive Ledger, Proof Vault, and Council Mode are companion tabs under the
-  Companion workflow.
+  Companion workflow. Council Mode has a shared question box, per-companion
+  base64 Copy Question buttons, per-companion answer imports, and a consolidated
+  answer copy button with attribution.
 
 ## Companion Update Commands
 

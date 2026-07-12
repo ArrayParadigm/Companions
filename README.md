@@ -19,19 +19,21 @@ python Companion_Web.py --host 127.0.0.1 --port 8787
 
 ## Pages And Tabs
 
-- Home: signed-out landing page with profile login and registration. If a
-  session times out, the console returns here and hides protected pages.
-- Dashboard: summary cards for companion packets, directives, spiritual
-  progress, fitness, diet, projects, chores, calendar, integrity, work
-  categories, and latest daily check-in.
+- Dashboard: profile login and registration when signed out, plus summary cards
+  for companion packets, directives, spiritual progress, fitness, diet,
+  projects, chores, calendar, integrity, work categories, and latest daily
+  check-in after login. If a session times out from inactivity, protected pages
+  hide and the console returns to Dashboard.
 - Companion: Array-only packet management. The Memory tab copies opaque packets
   and handoffs, downloads packet text files, adds memories, applies command
-  batches, creates companions, shows an ID-only memory index, and searches the
-  archive by tag/category/ID. Copied, downloaded, and handoff packets omit
-  archived memories while local archive search remains available.
-  Directive Ledger creates and updates companion-issued directives. Proof Vault
-  stores metadata and uploaded proof files. Council Mode is the handoff hub for
-  asking multiple companions the same question while keeping packets separate.
+  batches, opens the New Companion dialog from the companion tab bar, shows an
+  ID-only memory index, and searches the archive by tag/category/ID. Copied,
+  downloaded, and handoff packets omit archived memories while local archive
+  search remains available. Directive Ledger creates and updates
+  companion-issued directives and exports active/recent directives as a base64
+  packet. Proof Vault stores metadata and uploaded proof files. Council Mode
+  copies base64 question packets per companion, imports their answers, and
+  copies a consolidated answer with attribution.
 - Daily Check-ins: summary, check-in form, and journal entry/readback controls.
 - Fitness: Recruit Rebuild command center with orders, editable workout groups,
   an exercise database, group exercise prescriptions, mobility/cardio/strength
@@ -46,8 +48,10 @@ python Companion_Web.py --host 127.0.0.1 --port 8787
 - Diet: inventory, generated shopping list, food diary, and CSV import. Shopping
   difference values show only positive need or zero.
 - Calendar: a month-grid planner with saved events, generated scheduled items,
-  and source links for fitness groups/orders, projects, chores, diet, spiritual
-  work, companion directives, or general reminders.
+  and source links for fitness groups/orders, projects, chores, diet food diary,
+  spiritual work, companion directives, or general reminders. Shopping-list
+  needs do not generate calendar items. Double-click a calendar item to open its
+  saved event or source surface.
 - Profile Settings: signed-in display-name and password changes.
 - Admin: Array-only profile approval, activation, access toggles, password
   resets, and session timeout configuration.
@@ -83,7 +87,7 @@ python Companion_Web.py --host 127.0.0.1 --port 8787
 - `control_data/users.json` stores local profile records. `Array` is the owner
   profile with companion access.
 - `control_data/settings.json` stores admin-controlled console settings such as
-  the session timeout timer.
+  the inactivity timeout timer.
 - `control_data/directives.json`, `proof_metadata.json`, `daily_checkins.json`,
   `project_todos.json`, `chores.json`, `diet.json`, `fitness.json`,
   `reading_progress.json`, and `calendar.json` store Array runtime data.

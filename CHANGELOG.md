@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.1.17.0 - 2026-07-12
+
+### Added
+
+- Added Council Mode question packets that copy per-companion base64 prompts, import companion answers, and copy a consolidated answer with speaker attribution.
+- Added Directive Export to copy active and recent directives as a base64 JSON packet.
+- Added a New Companion dialog opened from the companion tab bar.
+
+### Changed
+
+- Merged Home into Dashboard so sign-in and registration use the normal console page flow.
+- Changed session cookies to browser-session cookies while keeping server-side inactivity expiry.
+- Removed generated Diet shopping-list items from Calendar because they do not have a scheduled shopping day.
+- Calendar events now support double-click navigation to the relevant saved event or source surface.
+- Bumped the release file to `Version-0.1.17.0.md`.
+
+### Fixed
+
+- Fixed first-login category visibility so a refresh is no longer needed after signing in.
+
 ## 0.1.17 - 2026-07-08
 
 ### Added

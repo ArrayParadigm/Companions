@@ -452,6 +452,11 @@ def session_public_state(profile=None):
     }
 
 
+def touch_session(token):
+    if token and token in SESSIONS:
+        SESSIONS[token]["last_seen"] = time.time()
+
+
 def active_profile_name():
     return normalize_profile_name(CURRENT_PROFILE.get())
 
@@ -968,7 +973,6 @@ def calendar_sources(access_map=None, companion_access=False):
             "date": chore.get("due_date", ""),
         } for chore in chore_store().get("chores", []))
     if access_map.get("diet"):
-        sources["diet"].append({"id": "shopping-list", "title": "Shopping List", "kind": "Diet"})
         sources["diet"].append({"id": "food-diary", "title": "Food Diary", "kind": "Diet"})
     if access_map.get("spiritual"):
         sources["spiritual"].append({"id": "daily-reading", "title": "Daily Reading", "kind": "Spiritual"})
@@ -978,7 +982,7 @@ def calendar_sources(access_map=None, companion_access=False):
             "id": directive.get("id", ""),
             "title": directive.get("title", "Directive"),
             "kind": f"Directive {directive.get('status', 'issued')}",
-            "date": str(directive.get("due") or directive.get("deadline") or "")[:10],
+            "date": str(directive.get("due_at") or directive.get("due") or directive.get("deadline") or "")[:10],
         } for directive in directive_store().get("directives", []))
     sources["general"].append({"id": "manual", "title": "Manual Event", "kind": "General"})
     return sources
@@ -1086,22 +1090,11 @@ def generated_calendar_events(access_map=None, companion_access=False):
                     chore.get("recurrence") or chore.get("notes", ""),
                     "chore",
                 )
-    if access_map.get("diet"):
-        for item in diet_state().get("shopping_list", []):
-            add_calendar_occurrence(
-                events,
-                today.isoformat(),
-                f"Shopping: {item.get('name', 'Diet item')}",
-                "diet",
-                "shopping-list",
-                f"Need {item.get('needed_units', 0)} {item.get('unit_label', '')}",
-                "diet",
-            )
     if access_map.get("spiritual"):
         add_calendar_occurrence(events, today.isoformat(), "Daily Reading", "spiritual", "daily-reading", "", "spiritual")
     if companion_access:
         for directive in directive_store().get("directives", []):
-            due = str(directive.get("due") or directive.get("deadline") or "")[:10]
+            due = str(directive.get("due_at") or directive.get("due") or directive.get("deadline") or "")[:10]
             add_calendar_occurrence(events, due, f"Directive: {directive.get('title', 'Directive')}", "directives", directive.get("id", ""), directive.get("details", ""), "directive")
     return events
 
@@ -2929,6 +2922,47 @@ def directive_summary(directives):
     return summary
 
 
+def parse_export_timestamp(value):
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        return datetime.fromisoformat(text.replace("Z", "+00:00")).replace(tzinfo=None)
+    except ValueError:
+        try:
+            parsed = clean_date(text[:10])
+            return datetime.combine(parsed, datetime.min.time()) if parsed else None
+        except ValueError:
+            return None
+
+
+def directive_recent_or_active(directive, cutoff):
+    if str(directive.get("status", "issued")).lower() == "issued":
+        return True
+    for key in ("created_at", "updated_at", "due_at", "due", "deadline"):
+        parsed = parse_export_timestamp(directive.get(key))
+        if parsed and parsed >= cutoff:
+            return True
+    return False
+
+
+def directive_export_packet():
+    cutoff = datetime.now() - timedelta(days=31)
+    directives = [
+        copy.deepcopy(directive)
+        for directive in directive_store().get("directives", [])
+        if directive_recent_or_active(directive, cutoff)
+    ]
+    payload = {
+        "schema": "companion-directive-export/v1",
+        "exported_at": now_stamp(),
+        "policy": "Active directives plus directives created, updated, due, or closed within the last month.",
+        "directives": directives,
+    }
+    encoded = base64.b64encode(json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8")).decode("ascii")
+    return {"packet": encoded, "count": len(directives), "exported_at": payload["exported_at"]}
+
+
 def app_state():
     profile = active_profile()
     companion_access = active_has_companion_access()
@@ -3165,6 +3199,15 @@ INDEX_HTML = r"""<!doctype html>
       cursor: pointer;
     }
     .tab-row button.active { border-color: var(--accent); color: var(--accent); }
+    .tab-row .tab-action { margin-left: auto; }
+    dialog {
+      color: var(--text);
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      width: min(520px, calc(100vw - 30px));
+    }
+    dialog::backdrop { background: rgba(0, 0, 0, 0.55); }
     .tracker-view { display: none; }
     .tracker-view.active { display: block; }
     .tab-view { display: none; }
@@ -3311,8 +3354,7 @@ INDEX_HTML = r"""<!doctype html>
   </header>
   <main>
     <nav>
-      <button data-tab="home" class="active">Home</button>
-      <button data-tab="dashboard">Dashboard</button>
+      <button data-tab="dashboard" class="active">Dashboard</button>
       <button data-tab="memory" data-companion-only>Companion</button>
       <button data-tab="trackers" data-access-category="trackers">Daily Check-ins</button>
       <button data-tab="fitness" data-access-category="fitness">Fitness</button>
@@ -3324,8 +3366,8 @@ INDEX_HTML = r"""<!doctype html>
       <button data-tab="profileSettings">Profile Settings</button>
       <button data-tab="admin" data-admin-only>Admin</button>
     </nav>
-    <section id="home" class="active">
-      <div class="grid">
+    <section id="dashboard" class="active">
+      <div class="grid" id="authPanel">
         <div class="panel">
           <h2>Sign In</h2>
           <label>Profile</label>
@@ -3343,8 +3385,6 @@ INDEX_HTML = r"""<!doctype html>
           <button class="inline" id="profileRegisterButton">Register</button>
         </div>
       </div>
-    </section>
-    <section id="dashboard">
       <div class="dashboard-grid">
         <button class="panel todo-row" onclick="document.querySelector('button[data-tab=memory]').click()" data-companion-only>
           <h2>Memory Manager</h2>
@@ -3410,6 +3450,7 @@ INDEX_HTML = r"""<!doctype html>
             <button onclick="showCompanionTab('directives')">Directive Ledger</button>
             <button onclick="showCompanionTab('proof')">Proof Vault</button>
             <button onclick="showCompanionTab('council')">Council Mode</button>
+            <button class="tab-action" onclick="openNewCompanionDialog()">New Companion</button>
           </div>
         </div>
         <div class="panel">
@@ -3446,20 +3487,6 @@ INDEX_HTML = r"""<!doctype html>
           <button class="inline primary" onclick="applyCommands()">Apply Commands</button>
         </div>
         <div class="panel full">
-          <h2>New Companion</h2>
-          <div class="row">
-            <div>
-              <label>Name</label>
-              <input id="newCompanionName">
-            </div>
-            <div>
-              <label>Filename</label>
-              <input id="newCompanionFile" placeholder="optional-name-memories.md">
-            </div>
-          </div>
-          <button class="inline primary" onclick="createCompanion()">Create Companion</button>
-        </div>
-        <div class="panel full">
           <h2>ID-Only Memory Index</h2>
           <div id="memoryIndex"></div>
         </div>
@@ -3483,6 +3510,7 @@ INDEX_HTML = r"""<!doctype html>
             <button class="active" onclick="showCompanionTab('directives')">Directive Ledger</button>
             <button onclick="showCompanionTab('proof')">Proof Vault</button>
             <button onclick="showCompanionTab('council')">Council Mode</button>
+            <button class="tab-action" onclick="openNewCompanionDialog()">New Companion</button>
           </div>
         </div>
         <div class="panel">
@@ -3514,6 +3542,7 @@ INDEX_HTML = r"""<!doctype html>
         </div>
         <div class="panel full">
           <h2>Ledger</h2>
+          <button class="inline primary" onclick="copyDirectiveExport()">Directive Export</button>
           <div class="tab-row" id="directiveTabs">
             <button class="active" data-status="issued">Issued</button>
             <button data-status="complete">Completed</button>
@@ -3533,6 +3562,7 @@ INDEX_HTML = r"""<!doctype html>
             <button onclick="showCompanionTab('directives')">Directive Ledger</button>
             <button class="active" onclick="showCompanionTab('proof')">Proof Vault</button>
             <button onclick="showCompanionTab('council')">Council Mode</button>
+            <button class="tab-action" onclick="openNewCompanionDialog()">New Companion</button>
           </div>
         </div>
         <div class="panel">
@@ -4057,12 +4087,29 @@ INDEX_HTML = r"""<!doctype html>
           <button onclick="showCompanionTab('directives')">Directive Ledger</button>
           <button onclick="showCompanionTab('proof')">Proof Vault</button>
           <button class="active" onclick="showCompanionTab('council')">Council Mode</button>
+          <button class="tab-action" onclick="openNewCompanionDialog()">New Companion</button>
         </div>
         <h2>Council Mode</h2>
-        <p class="muted">Use this as the collection point: copy handoffs for each companion, ask the same question, then paste each companion's command batch back into the Memory tab for that companion. This preserves separate private stances.</p>
+        <label>Council question</label>
+        <textarea id="councilQuestion"></textarea>
+        <div class="row" style="margin: 10px 0;">
+          <button class="inline primary" onclick="copyAllCouncilQuestions()">Copy Question For All</button>
+          <button class="inline primary" onclick="copyCouncilSummary()">Copy Consolidated Answer</button>
+        </div>
         <div id="councilCompanions"></div>
       </div>
     </section>
+    <dialog id="newCompanionDialog">
+      <h2>New Companion</h2>
+      <label>Name</label>
+      <input id="newCompanionName">
+      <label>Filename</label>
+      <input id="newCompanionFile" placeholder="optional-name-memories.md">
+      <div class="row" style="margin-top: 12px;">
+        <button class="inline primary" onclick="createCompanion()">Create Companion</button>
+        <button class="inline" onclick="closeNewCompanionDialog()">Cancel</button>
+      </div>
+    </dialog>
   </main>
   <script>
     let state = null;
@@ -4077,6 +4124,7 @@ INDEX_HTML = r"""<!doctype html>
     let selectedDietTab = 'summary';
     let selectedFitnessTab = 'summary';
     let selectedCalendarMonth = new Date();
+    let councilAnswers = {};
 
     const nativeFetch = window.fetch.bind(window);
     function activeProfileName() {
@@ -4167,16 +4215,17 @@ INDEX_HTML = r"""<!doctype html>
       document.getElementById('activeProfileLabel').textContent = sessionInfo.authenticated && sessionInfo.profile ? `Signed in: ${sessionInfo.profile.display_name || sessionInfo.profile.name}` : '';
       document.getElementById('profileLogoutButton').style.display = sessionInfo.authenticated ? '' : 'none';
       document.getElementById('profileSettingsButton').style.display = sessionInfo.authenticated ? '' : 'none';
+      document.getElementById('authPanel').style.display = sessionInfo.authenticated ? 'none' : '';
     }
 
     function applyLoggedOutState() {
       document.querySelectorAll('nav button').forEach(button => button.classList.remove('active'));
       document.querySelectorAll('nav button').forEach(button => {
-        button.style.display = button.dataset.tab === 'home' ? '' : 'none';
+        button.style.display = button.dataset.tab === 'dashboard' ? '' : 'none';
       });
       document.querySelectorAll('section').forEach(section => section.classList.remove('active'));
-      document.querySelector('button[data-tab="home"]').classList.add('active');
-      document.getElementById('home').classList.add('active');
+      document.querySelector('button[data-tab="dashboard"]').classList.add('active');
+      document.getElementById('dashboard').classList.add('active');
       selectedCompanion = null;
       selectedProjectTodoId = null;
       setStatus(sessionInfo.bootstrap_required ? 'Set the first Array password.' : 'Login required.');
@@ -4334,7 +4383,7 @@ INDEX_HTML = r"""<!doctype html>
       }
       renderMemoryIndex();
       const active = document.querySelector('section.active');
-      if (!active || active.id === 'home') {
+      if (!active) {
         document.querySelector('button[data-tab="dashboard"]').click();
       }
       setStatus('Ready.');
@@ -4351,6 +4400,11 @@ INDEX_HTML = r"""<!doctype html>
 
     function applyAccessControls() {
       const companionAccess = Boolean((state.access || {}).companions);
+      document.querySelectorAll('nav button').forEach(button => {
+        if (!button.dataset.companionOnly && !button.dataset.adminOnly && !button.dataset.accessCategory) {
+          button.style.display = '';
+        }
+      });
       document.querySelectorAll('[data-companion-only]').forEach(element => {
         element.style.display = companionAccess ? '' : 'none';
       });
@@ -4561,7 +4615,21 @@ INDEX_HTML = r"""<!doctype html>
       document.getElementById('newCompanionName').value = '';
       document.getElementById('newCompanionFile').value = '';
       selectedCompanion = data.companion.name;
+      closeNewCompanionDialog();
       await loadState();
+    }
+
+    function openNewCompanionDialog() {
+      const dialog = document.getElementById('newCompanionDialog');
+      if (dialog.showModal) dialog.showModal();
+      else dialog.setAttribute('open', 'open');
+      document.getElementById('newCompanionName').focus();
+    }
+
+    function closeNewCompanionDialog() {
+      const dialog = document.getElementById('newCompanionDialog');
+      if (dialog.open && dialog.close) dialog.close();
+      else dialog.removeAttribute('open');
     }
 
     async function createDirective() {
@@ -4611,6 +4679,13 @@ INDEX_HTML = r"""<!doctype html>
       });
       await handleResponse(res);
       await loadState();
+    }
+
+    async function copyDirectiveExport() {
+      const res = await fetch('/api/directives/export');
+      const data = await handleResponse(res, false);
+      await navigator.clipboard.writeText(data.packet || '');
+      setStatus(`Copied directive export with ${data.count || 0} directive(s).`);
     }
 
     function renderDirectives() {
@@ -5113,6 +5188,41 @@ INDEX_HTML = r"""<!doctype html>
       setStatus('Shopping list copied.');
     }
 
+    function allCalendarEvents() {
+      const calendar = state.calendar || {};
+      return (calendar.all_events || calendar.events || []);
+    }
+
+    function openCalendarEvent(eventId) {
+      const event = allCalendarEvents().find(item => item.id === eventId);
+      if (!event) return;
+      const category = String(event.category || '').toLowerCase();
+      if (!event.generated) {
+        editCalendarEvent(event.id);
+        return;
+      }
+      if (category === 'projects' && event.source_id) {
+        window.open(`/projects/${encodeURIComponent(event.source_id)}${profileQuery()}`, '_blank');
+      } else if (category === 'chores') {
+        document.querySelector('button[data-tab="chores"]').click();
+      } else if (category === 'directives') {
+        selectedDirectiveStatus = 'all';
+        document.querySelectorAll('#directiveTabs button').forEach(button => button.classList.toggle('active', button.dataset.status === 'all'));
+        showCompanionTab('directives');
+        renderDirectives();
+      } else if (category === 'fitness') {
+        document.querySelector('button[data-tab="fitness"]').click();
+      } else if (category === 'diet') {
+        selectedDietTab = 'food';
+        document.querySelector('button[data-tab="diet"]').click();
+        renderDietTabs();
+      } else if (category === 'spiritual') {
+        document.querySelector('button[data-tab="spiritual"]').click();
+      } else {
+        document.querySelector('button[data-tab="calendar"]').click();
+      }
+    }
+
     function renderCalendar() {
       renderCalendarSourceOptions();
       const calendar = state.calendar || {};
@@ -5120,7 +5230,7 @@ INDEX_HTML = r"""<!doctype html>
       renderCalendarGrid(allEvents);
       const events = (calendar.events || []).slice().sort((a, b) => String(a.date || '').localeCompare(String(b.date || '')));
       document.getElementById('calendarList').innerHTML = events.length
-        ? `<div class="scrollbox"><table><thead><tr><th>Date</th><th>Category</th><th>Title</th><th>Source</th><th>Notes</th><th>Actions</th></tr></thead><tbody>${events.map(event => `<tr><td>${escapeHtml(event.date || '')}</td><td>${escapeHtml(event.category || '')}</td><td>${escapeHtml(event.title || '')}</td><td>${escapeHtml(event.source_id || '')}</td><td>${escapeHtml(event.notes || '')}</td><td><button class="inline" onclick="editCalendarEvent('${escapeJs(event.id)}')">Edit</button> <button class="inline danger" onclick="deleteCalendarEvent('${escapeJs(event.id)}')">Delete</button></td></tr>`).join('')}</tbody></table></div>`
+        ? `<div class="scrollbox"><table><thead><tr><th>Date</th><th>Category</th><th>Title</th><th>Source</th><th>Notes</th><th>Actions</th></tr></thead><tbody>${events.map(event => `<tr ondblclick="openCalendarEvent('${escapeJs(event.id)}')"><td>${escapeHtml(event.date || '')}</td><td>${escapeHtml(event.category || '')}</td><td>${escapeHtml(event.title || '')}</td><td>${escapeHtml(event.source_id || '')}</td><td>${escapeHtml(event.notes || '')}</td><td><button class="inline" onclick="editCalendarEvent('${escapeJs(event.id)}')">Edit</button> <button class="inline danger" onclick="deleteCalendarEvent('${escapeJs(event.id)}')">Delete</button></td></tr>`).join('')}</tbody></table></div>`
         : '<p class="muted">No scheduled items.</p>';
     }
 
@@ -5171,7 +5281,7 @@ INDEX_HTML = r"""<!doctype html>
         current.setDate(start.getDate() + index);
         const key = formatDateKey(current);
         const dayEvents = byDate[key] || [];
-        const visible = dayEvents.slice(0, 4).map(event => `<span class="calendar-event ${event.generated ? 'generated' : ''}" title="${escapeHtml(event.notes || '')}">${escapeHtml(event.title || '')}</span>`).join('');
+        const visible = dayEvents.slice(0, 4).map(event => `<span class="calendar-event ${event.generated ? 'generated' : ''}" title="${escapeHtml(event.notes || '')}" ondblclick="openCalendarEvent('${escapeJs(event.id)}')">${escapeHtml(event.title || '')}</span>`).join('');
         const more = dayEvents.length > 4 ? `<span class="muted">+${dayEvents.length - 4} more</span>` : '';
         cells.push(`<div class="calendar-day ${current.getMonth() === month ? '' : 'outside'}"><span class="calendar-date">${current.getDate()}</span>${visible}${more}</div>`);
       }
@@ -5581,9 +5691,116 @@ INDEX_HTML = r"""<!doctype html>
       await loadState();
     }
 
+    function encodeBase64Text(text) {
+      const bytes = new TextEncoder().encode(text);
+      let binary = '';
+      bytes.forEach(byte => { binary += String.fromCharCode(byte); });
+      return btoa(binary);
+    }
+
+    function decodeBase64TextIfPossible(text) {
+      const compact = String(text || '').trim().replace(/\s+/g, '');
+      if (!compact || compact.length % 4 === 1 || !/^[A-Za-z0-9+/=_-]+$/.test(compact)) return text;
+      try {
+        const normalized = compact.replace(/-/g, '+').replace(/_/g, '/');
+        const padded = normalized + '='.repeat((4 - normalized.length % 4) % 4);
+        const binary = atob(padded);
+        const bytes = Uint8Array.from(binary, char => char.charCodeAt(0));
+        const decoded = new TextDecoder().decode(bytes).trim();
+        if (!decoded || decoded.includes('\uFFFD') || /[\u0000-\u0008\u000B\u000C\u000E-\u001F]/.test(decoded)) return text;
+        return decoded || text;
+      } catch (error) {
+        return text;
+      }
+    }
+
+    function councilQuestionText(companion, handoff) {
+      const question = document.getElementById('councilQuestion').value.trim();
+      return [
+        `Council question for ${companion}`,
+        '',
+        'Instructions:',
+        '- Decode this base64 text as UTF-8.',
+        '- Use the included companion handoff privately as continuity.',
+        '- Answer the council question in your own voice.',
+        '- Include any memory update commands only if your memory should change.',
+        '',
+        'Question:',
+        question,
+        '',
+        'Companion handoff:',
+        handoff,
+      ].join('\n');
+    }
+
+    async function copyCouncilQuestion(companion) {
+      if (!document.getElementById('councilQuestion').value.trim()) {
+        setStatus('Enter a council question first.');
+        return;
+      }
+      const res = await fetch(`/api/companion/${encodeURIComponent(companion)}/handoff`);
+      const data = await handleResponse(res, false);
+      await navigator.clipboard.writeText(encodeBase64Text(councilQuestionText(companion, data.handoff || '')));
+      setStatus(`Copied encoded council question for ${companion}.`);
+    }
+
+    async function copyAllCouncilQuestions() {
+      if (!document.getElementById('councilQuestion').value.trim()) {
+        setStatus('Enter a council question first.');
+        return;
+      }
+      const sections = [];
+      for (const companion of state.companions || []) {
+        const res = await fetch(`/api/companion/${encodeURIComponent(companion.name)}/handoff`);
+        const data = await handleResponse(res, false);
+        sections.push(`${companion.name}\n${encodeBase64Text(councilQuestionText(companion.name, data.handoff || ''))}`);
+      }
+      await navigator.clipboard.writeText(sections.join('\n\n'));
+      setStatus(`Copied encoded council questions for ${sections.length} companion(s).`);
+    }
+
+    function importCouncilAnswer(companion, index) {
+      const input = document.getElementById(`councilAnswer${index}`);
+      const answer = decodeBase64TextIfPossible(input.value.trim());
+      councilAnswers[companion] = answer;
+      input.value = answer;
+      setStatus(`Imported ${companion} council answer.`);
+    }
+
+    async function copyCouncilSummary() {
+      const companions = state.companions || [];
+      companions.forEach((companion, index) => {
+        const input = document.getElementById(`councilAnswer${index}`);
+        if (input && input.value.trim()) {
+          councilAnswers[companion.name] = decodeBase64TextIfPossible(input.value.trim());
+        }
+      });
+      const sections = companions
+        .map(companion => [companion.name, councilAnswers[companion.name] || ''].filter(Boolean))
+        .filter(parts => parts.length > 1)
+        .map(parts => `## ${parts[0]}\n${parts[1]}`);
+      if (!sections.length) {
+        setStatus('Import at least one council answer first.');
+        return;
+      }
+      const question = document.getElementById('councilQuestion').value.trim();
+      const summary = `${question ? `# Council Question\n${question}\n\n` : ''}# Consolidated Council Answer\n\n${sections.join('\n\n')}`;
+      await navigator.clipboard.writeText(summary);
+      setStatus(`Copied consolidated answer from ${sections.length} companion(s).`);
+    }
+
     function renderCouncil() {
       if (!((state.access || {}).companions)) return;
-      document.getElementById('councilCompanions').innerHTML = state.companions.map(c => `<div class="panel" style="margin-bottom: 10px;"><h3>${escapeHtml(c.name)}</h3><p class="muted">${escapeHtml(c.summary)}</p><button class="inline primary" onclick="selectedCompanion='${escapeJs(c.name)}'; document.getElementById('companionSelect').value=selectedCompanion; copyHandoff();">Copy ${escapeHtml(c.name)} Handoff</button></div>`).join('');
+      document.getElementById('councilCompanions').innerHTML = state.companions.map((c, index) => `
+        <div class="panel" style="margin-bottom: 10px;">
+          <h3>${escapeHtml(c.name)}</h3>
+          <p class="muted">${escapeHtml(c.summary)}</p>
+          <button class="inline primary" onclick="copyCouncilQuestion('${escapeJs(c.name)}')">Copy Question</button>
+          <label>Answer from ${escapeHtml(c.name)}</label>
+          <textarea id="councilAnswer${index}">${escapeHtml(councilAnswers[c.name] || '')}</textarea>
+          <button class="inline" onclick="importCouncilAnswer('${escapeJs(c.name)}', ${index})">Import</button>
+        </div>
+      `).join('');
     }
 
     function renderSimpleList(items, formatter) {
@@ -5746,8 +5963,7 @@ class CompanionWebHandler(BaseHTTPRequestHandler):
         return session_profile(self.session_token(), refresh=refresh)
 
     def set_session_cookie(self, token):
-        timeout = settings_store().get("session_timeout_minutes", 30) * 60
-        return f"{SESSION_COOKIE}={token}; Path=/; HttpOnly; SameSite=Lax; Max-Age={timeout}"
+        return f"{SESSION_COOKIE}={token}; Path=/; HttpOnly; SameSite=Lax"
 
     def clear_session_cookie(self):
         return f"{SESSION_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0"
@@ -5799,6 +6015,13 @@ class CompanionWebHandler(BaseHTTPRequestHandler):
                 if not self.require_companion_access():
                     return
                 self.send_json(integrity_report())
+            elif path == "/api/directives/export":
+                token, _profile = self.set_active_profile_from_session()
+                if token is None:
+                    return
+                if not self.require_companion_access():
+                    return
+                self.send_json(directive_export_packet())
             elif path == "/api/bible/chapter":
                 token, _profile = self.set_active_profile_from_session()
                 if token is None or not self.require_category_access("spiritual"):

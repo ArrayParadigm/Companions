@@ -1,5 +1,18 @@
 # Test Log
 
+## 2026-07-12 - 0.1.17.0 TODO Sprint
+
+| Severity | Area | Result | Notes |
+| --- | --- | --- | --- |
+| Info | Static compile | Pass | `python -m py_compile Companion_Web.py Memory_Manager.py` passed. |
+| Info | Compileall | Pass | `python -m compileall -q Companion_Web.py Memory_Manager.py` passed. |
+| Info | JSON validation | Pass | `companion-files.json`, `control_data/*.json`, and `tracker_data/*.json` parse successfully across 15 files. |
+| Info | Functional smoke | Pass | Temporary isolated data verified session cookies no longer use a fixed `Max-Age`, server-side inactivity expiry still works, Diet shopping-list items are excluded from Calendar sources/generated events, directive calendar generation uses `due_at`, and Directive Export decodes to active plus recent directives only. |
+| Info | Copyover check | Pass | `cmd /c copyover.bat --check` detected `D:\000_Files\002_Projects\EVE\MS\Companions-1`, version `0.1.17.0`, and copied no files. |
+| Info | Static marker gate | Pass | Static search confirmed Dashboard auth panel, access-control refresh, Directive Export, Council question/import/consolidation controls, New Companion dialog, calendar double-click handlers, and session-cookie update are present; shopping-list calendar markers are absent. |
+| Low | First-login category visibility | Fixed | The signed-out state hid unrestricted nav buttons; authenticated access rendering now restores unrestricted navigation before applying access gates, so first login no longer needs a refresh. |
+| Info | Whitespace gate | Pass | `git diff --check` reported no whitespace errors; Git only warned that edited text files will be normalized from LF to CRLF when touched. |
+
 ## 2026-07-08 - 0.1.17 TODO Sprint
 
 | Severity | Area | Result | Notes |
