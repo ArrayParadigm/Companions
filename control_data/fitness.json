@@ -1,26 +1,46 @@
 {
   "phase": "Recruit Intake",
   "status": "Recruit Rebuild",
-  "evie_note": "Dad, today is not heroic. Today is consistency. Walk, stretch, report back. No negotiating.",
+  "evie_note": "Core first. Engine second. Clean form, honest report, no random hero workouts.",
   "next_readiness_number": 1,
-  "next_order_number": 4,
+  "next_order_number": 6,
   "next_log_number": 1,
   "next_challenge_number": 2,
   "orders": [
     {
       "id": "ORD-0001",
-      "title": "10-minute walk",
-      "details": "Easy pace. No running.",
+      "title": "Main PT Alpha",
+      "details": "Monday core + endurance. Clean form. No hero nonsense.",
       "status": "open",
-      "type": "cardio",
+      "type": "fitness",
       "due_date": "",
       "report": "",
       "skip_reason": ""
     },
     {
       "id": "ORD-0002",
-      "title": "Mobility: hamstrings + cat-cow + calf stretch",
-      "details": "Move gently. No aggressive back extension.",
+      "title": "Daily Minimum",
+      "details": "Water first, small mobility, easy movement, no-zero-day maintenance.",
+      "status": "open",
+      "type": "daily_minimum",
+      "due_date": "",
+      "report": "",
+      "skip_reason": ""
+    },
+    {
+      "id": "ORD-0003",
+      "title": "Main PT Bravo",
+      "details": "Wednesday strength chassis + core. Leave two reps in reserve.",
+      "status": "open",
+      "type": "strength",
+      "due_date": "",
+      "report": "",
+      "skip_reason": ""
+    },
+    {
+      "id": "ORD-0004",
+      "title": "Recovery Mobility + Check-In",
+      "details": "Thursday recovery, stiffness control, pain and energy check.",
       "status": "open",
       "type": "mobility",
       "due_date": "",
@@ -28,85 +48,488 @@
       "skip_reason": ""
     },
     {
-      "id": "ORD-0003",
-      "title": "Small home task",
-      "details": "One small home task. Keep it bounded.",
+      "id": "ORD-0005",
+      "title": "Main PT Charlie",
+      "details": "Friday endurance + movement discipline. Steady engine work.",
       "status": "open",
-      "type": "discipline",
+      "type": "cardio",
       "due_date": "",
       "report": "",
       "skip_reason": ""
     }
   ],
   "workout_plan": {
+    "mission": [
+      "Rebuild the chassis.",
+      "Strengthen the core.",
+      "Improve endurance.",
+      "Restore consistency."
+    ],
     "weekly_structure": [
-      "Monday: Strength A",
-      "Tuesday: Walk + Mobility",
-      "Wednesday: Recovery / Easy Walk",
-      "Thursday: Strength B",
-      "Friday: Walk Intervals",
-      "Saturday: Chore Conditioning / Yard Work",
-      "Sunday: Rest + Stretch"
+      "Monday: Main PT Alpha - Core + Endurance",
+      "Tuesday: Daily Minimum - Beloved Creature Maintenance",
+      "Wednesday: Main PT Bravo - Strength Chassis + Core",
+      "Thursday: Recovery Mobility + Check-In",
+      "Friday: Main PT Charlie - Endurance + Movement Discipline",
+      "Saturday: Optional light walk, technique, stretch, or mobility",
+      "Sunday: Rest, review, plan next week"
+    ],
+    "primary_focus": [
+      "Core stability",
+      "Endurance",
+      "Functional strength",
+      "Mobility and recovery",
+      "Consistency over ego"
     ],
     "daily_minimum": [
-      "10-minute walk",
-      "5-minute mobility",
-      "1 small home task"
+      "Drink water first",
+      "Neck and shoulder rolls: 1 minute",
+      "Hip hinges or chair sit-to-stand: 1 set x 8",
+      "Calf raises: 1 set x 10",
+      "Dead bug, heel taps, or brace breathing: 1 set x 6",
+      "Easy walk: 5-10 minutes"
     ],
-    "strength_a": [
-      "Chair squats or bodyweight squats: 2x8",
-      "Incline pushups: 2x6",
-      "Glute bridges: 2x10",
-      "Dead bugs: 2x6 per side",
-      "Easy hamstring stretch: 30 seconds per side"
-    ],
-    "cardio_base": [
-      "Walk 15-20 minutes",
-      "Last 3 minutes slightly faster",
-      "No running unless conditioning earns it"
-    ],
-    "forward_fold": [
-      "Seated hamstring stretch: 45 seconds per side",
-      "Standing soft-knee forward hang: 30 seconds",
-      "Calf stretch: 30 seconds per side",
-      "Cat-cow: 6 slow reps"
+    "sunday_review": [
+      "Review weekly completion",
+      "Review pain trend",
+      "Review energy trend",
+      "Name best win",
+      "Name biggest obstacle",
+      "Set Monday, Wednesday, and Friday training times"
     ]
   },
   "exercise_library": [
     {
+      "id": "EX-0001",
       "name": "Dead bug",
-      "purpose": "Core stability and lower-back protection.",
-      "warning": "Stop if sharp back pain appears.",
-      "progression": "Increase reps or extend legs farther.",
-      "regression": "Move arms only or legs only."
+      "format": "sets_reps",
+      "media_url": "",
+      "details": "Lie on your back, brace gently, and move the opposite arm and leg slowly without arching the lower back.",
+      "tags": [
+        "core",
+        "back-safe",
+        "no-equipment"
+      ],
+      "target_areas": [
+        "core",
+        "lower back protection"
+      ],
+      "equipment": [
+        "floor"
+      ],
+      "difficulty": "easy",
+      "pt_role": "main",
+      "contraindications": "Stop for sharp back pain, dizziness, nerve symptoms, or unsafe pain.",
+      "how_to": "Brace gently. Keep ribs down. Extend one heel and the opposite arm only as far as the back stays quiet. Return with control.",
+      "default_sets": 2,
+      "default_reps": 8,
+      "default_duration_seconds": 0,
+      "warning": "Stop if the lower back arches or sharp pain appears.",
+      "progression": "Extend the legs farther or add reps.",
+      "regression": "Move arms only, legs only, or use heel taps."
     },
     {
-      "name": "Chair squat",
-      "purpose": "Rebuild squat pattern safely.",
-      "warning": "Stop for sharp knee or back pain.",
-      "progression": "Lower the chair height.",
-      "regression": "Use hands for support."
+      "id": "EX-0002",
+      "name": "Bird dog",
+      "format": "sets_reps",
+      "media_url": "",
+      "details": "Controlled opposite arm and leg reach for core stability, hips, and back-safe coordination.",
+      "tags": [
+        "core",
+        "balance",
+        "mobility",
+        "back-safe"
+      ],
+      "target_areas": [
+        "core",
+        "hips",
+        "posterior chain"
+      ],
+      "equipment": [
+        "floor"
+      ],
+      "difficulty": "easy",
+      "pt_role": "main",
+      "contraindications": "Stop if kneeling or spinal extension causes unsafe pain.",
+      "how_to": "Start on hands and knees. Brace gently. Reach opposite arm and leg long, pause, then return without twisting.",
+      "default_sets": 2,
+      "default_reps": 8,
+      "default_duration_seconds": 0,
+      "warning": "Avoid dumping into the low back or rotating the hips open.",
+      "progression": "Longer pause at full reach.",
+      "regression": "Move one limb at a time."
     },
     {
-      "name": "Incline pushup",
-      "purpose": "Rebuild push strength.",
-      "warning": "Stop for shoulder pain.",
-      "progression": "Lower the incline.",
-      "regression": "Use a higher support."
-    },
-    {
+      "id": "EX-0003",
       "name": "Glute bridge",
-      "purpose": "Rebuild hips and posterior chain.",
+      "format": "sets_reps",
+      "media_url": "",
+      "details": "Hip and posterior-chain rebuild movement that supports posture and lower-back protection.",
+      "tags": [
+        "strength",
+        "core",
+        "posterior-chain",
+        "no-equipment"
+      ],
+      "target_areas": [
+        "glutes",
+        "hips",
+        "posterior chain"
+      ],
+      "equipment": [
+        "floor"
+      ],
+      "difficulty": "easy",
+      "pt_role": "main",
+      "contraindications": "Avoid aggressive back arching.",
+      "how_to": "Lie on your back, feet planted. Brace lightly, squeeze glutes, lift hips until body forms a straight line, then lower.",
+      "default_sets": 2,
+      "default_reps": 10,
+      "default_duration_seconds": 0,
       "warning": "No aggressive back arch.",
-      "progression": "Add pauses.",
-      "regression": "Reduce range."
+      "progression": "Add a pause at the top.",
+      "regression": "Reduce range or reps."
     },
     {
+      "id": "EX-0004",
+      "name": "Sit-to-stand",
+      "format": "sets_reps",
+      "media_url": "",
+      "details": "Chair-based squat pattern for legs, hips, balance, and functional strength.",
+      "tags": [
+        "strength",
+        "legs",
+        "balance",
+        "functional"
+      ],
+      "target_areas": [
+        "quads",
+        "glutes",
+        "hips"
+      ],
+      "equipment": [
+        "chair"
+      ],
+      "difficulty": "easy",
+      "pt_role": "main",
+      "contraindications": "Stop for sharp knee, hip, or back pain.",
+      "how_to": "Sit tall on a stable chair. Stand with control, keep knees tracking over feet, then sit back down softly.",
+      "default_sets": 2,
+      "default_reps": 8,
+      "default_duration_seconds": 0,
+      "warning": "Do not collapse the knees inward.",
+      "progression": "Lower the chair height or add a slow tempo.",
+      "regression": "Use hands lightly for support."
+    },
+    {
+      "id": "EX-0005",
+      "name": "Incline push-up",
+      "format": "sets_reps",
+      "media_url": "",
+      "details": "Upper-body push rebuild with scalable incline.",
+      "tags": [
+        "strength",
+        "upper-body",
+        "push"
+      ],
+      "target_areas": [
+        "chest",
+        "shoulders",
+        "triceps",
+        "core"
+      ],
+      "equipment": [
+        "counter",
+        "bench",
+        "wall"
+      ],
+      "difficulty": "easy",
+      "pt_role": "main",
+      "contraindications": "Stop for sharp shoulder, wrist, or chest pain.",
+      "how_to": "Hands on a stable incline. Keep a straight line from head to heel, lower under control, press back up.",
+      "default_sets": 3,
+      "default_reps": 8,
+      "default_duration_seconds": 0,
+      "warning": "Keep shoulders controlled and ribs from flaring.",
+      "progression": "Use a lower incline.",
+      "regression": "Use a wall or higher support."
+    },
+    {
+      "id": "EX-0006",
+      "name": "Band row",
+      "format": "sets_reps",
+      "media_url": "",
+      "details": "Pulling strength for posture, shoulders, and upper-back balance.",
+      "tags": [
+        "strength",
+        "upper-back",
+        "posture",
+        "band"
+      ],
+      "target_areas": [
+        "upper back",
+        "lats",
+        "rear shoulders"
+      ],
+      "equipment": [
+        "band"
+      ],
+      "difficulty": "easy",
+      "pt_role": "main",
+      "contraindications": "Use a safe anchor and stop for sharp shoulder pain.",
+      "how_to": "Anchor band safely. Pull elbows back, squeeze shoulder blades gently, then return under control.",
+      "default_sets": 3,
+      "default_reps": 10,
+      "default_duration_seconds": 0,
+      "warning": "Do not shrug or yank.",
+      "progression": "Use a stronger band or slower tempo.",
+      "regression": "Use a lighter band."
+    },
+    {
+      "id": "EX-0007",
+      "name": "Farmer carry",
+      "format": "duration_distance",
+      "media_url": "",
+      "details": "Loaded carry for grip, trunk stiffness, posture, and practical work capacity.",
+      "tags": [
+        "strength",
+        "core",
+        "endurance",
+        "functional"
+      ],
+      "target_areas": [
+        "core",
+        "grip",
+        "shoulders",
+        "hips"
+      ],
+      "equipment": [
+        "dumbbells",
+        "bags",
+        "jugs"
+      ],
+      "difficulty": "moderate",
+      "pt_role": "main",
+      "contraindications": "Stop if load changes gait or causes unsafe back pain.",
+      "how_to": "Hold weight at sides, stand tall, walk steadily, and keep breathing.",
+      "default_sets": 4,
+      "default_reps": 0,
+      "default_duration_seconds": 45,
+      "warning": "Do not lean or rush.",
+      "progression": "Add time before load.",
+      "regression": "Use lighter objects or shorter rounds."
+    },
+    {
+      "id": "EX-0008",
+      "name": "Side plank from knees",
+      "format": "duration_reps",
+      "media_url": "",
+      "details": "Side-core stability drill with reduced load.",
+      "tags": [
+        "core",
+        "balance",
+        "back-safe"
+      ],
+      "target_areas": [
+        "obliques",
+        "hips",
+        "core"
+      ],
+      "equipment": [
+        "floor"
+      ],
+      "difficulty": "easy",
+      "pt_role": "main",
+      "contraindications": "Stop for shoulder or sharp back pain.",
+      "how_to": "Support on forearm and knees. Lift hips, keep a straight line from shoulder to knee, breathe.",
+      "default_sets": 2,
+      "default_reps": 0,
+      "default_duration_seconds": 20,
+      "warning": "Do not sag or twist.",
+      "progression": "Longer holds or full side plank.",
+      "regression": "Standing side brace against a wall."
+    },
+    {
+      "id": "EX-0009",
+      "name": "Easy walk",
+      "format": "duration_distance",
+      "media_url": "",
+      "details": "Low-impact endurance base builder.",
+      "tags": [
+        "endurance",
+        "cardio",
+        "daily-minimum",
+        "no-equipment"
+      ],
+      "target_areas": [
+        "heart",
+        "legs",
+        "stamina"
+      ],
+      "equipment": [
+        "shoes"
+      ],
+      "difficulty": "easy",
+      "pt_role": "daily_minimum",
+      "contraindications": "Stop for chest symptoms, dizziness, unsafe gait, or sharp pain.",
+      "how_to": "Walk at a pace that keeps breathing controlled. Keep posture tall and stride comfortable.",
+      "default_sets": 1,
+      "default_reps": 0,
+      "default_duration_seconds": 600,
+      "warning": "No running until the walking base earns it.",
+      "progression": "Add minutes before intensity.",
+      "regression": "Indoor pacing or shorter rounds."
+    },
+    {
+      "id": "EX-0010",
+      "name": "Light intervals",
+      "format": "duration_reps",
+      "media_url": "",
+      "details": "One minute brisk, two minutes easy, repeated for controlled endurance work.",
+      "tags": [
+        "endurance",
+        "cardio",
+        "intervals"
+      ],
+      "target_areas": [
+        "heart",
+        "legs",
+        "breathing"
+      ],
+      "equipment": [
+        "shoes",
+        "bike",
+        "treadmill"
+      ],
+      "difficulty": "moderate",
+      "pt_role": "main",
+      "contraindications": "Do not use if pain, breath, or gait is unstable.",
+      "how_to": "Warm up first. Alternate one minute brisk with two minutes easy for five rounds.",
+      "default_sets": 5,
+      "default_reps": 0,
+      "default_duration_seconds": 180,
+      "warning": "This is brisk, not reckless.",
+      "progression": "Add one round after recovery is consistent.",
+      "regression": "Use steady easy walking."
+    },
+    {
+      "id": "EX-0011",
+      "name": "Hamstring stretch",
+      "format": "duration_reps",
+      "media_url": "",
+      "details": "Gentle hamstring mobility for forward-fold progress and lower-body comfort.",
+      "tags": [
+        "mobility",
+        "hamstrings",
+        "recovery"
+      ],
+      "target_areas": [
+        "hamstrings",
+        "posterior chain"
+      ],
+      "equipment": [
+        "chair",
+        "floor"
+      ],
+      "difficulty": "easy",
+      "pt_role": "recovery",
+      "contraindications": "Avoid nerve pain, numbness, or aggressive pulling.",
+      "how_to": "Keep the knee soft, hinge gently, and breathe into a mild stretch.",
+      "default_sets": 2,
+      "default_reps": 0,
+      "default_duration_seconds": 30,
+      "warning": "No bouncing.",
+      "progression": "Add time gradually.",
+      "regression": "Use a seated version."
+    },
+    {
+      "id": "EX-0012",
       "name": "Cat-cow",
-      "purpose": "Gentle spinal motion.",
-      "warning": "Avoid forced extension.",
+      "format": "duration_reps",
+      "media_url": "",
+      "details": "Gentle spinal motion for stiffness control.",
+      "tags": [
+        "mobility",
+        "back-safe",
+        "recovery"
+      ],
+      "target_areas": [
+        "spine",
+        "lower back"
+      ],
+      "equipment": [
+        "floor"
+      ],
+      "difficulty": "easy",
+      "pt_role": "recovery",
+      "contraindications": "Avoid forced back extension.",
+      "how_to": "On hands and knees, move slowly between gentle rounding and gentle extension.",
+      "default_sets": 1,
+      "default_reps": 8,
+      "default_duration_seconds": 0,
+      "warning": "Move through comfortable range only.",
       "progression": "Slower controlled reps.",
       "regression": "Smaller range."
+    },
+    {
+      "id": "EX-0013",
+      "name": "Hip flexor stretch",
+      "format": "duration_reps",
+      "media_url": "",
+      "details": "Recovery stretch for hips and posture.",
+      "tags": [
+        "mobility",
+        "hips",
+        "recovery"
+      ],
+      "target_areas": [
+        "hip flexors",
+        "quads"
+      ],
+      "equipment": [
+        "floor",
+        "chair"
+      ],
+      "difficulty": "easy",
+      "pt_role": "recovery",
+      "contraindications": "Use support if balance or knees complain.",
+      "how_to": "Use a supported lunge or standing version. Tuck pelvis gently and breathe.",
+      "default_sets": 2,
+      "default_reps": 0,
+      "default_duration_seconds": 30,
+      "warning": "Do not force the low back into extension.",
+      "progression": "Add time slowly.",
+      "regression": "Standing supported stretch."
+    },
+    {
+      "id": "EX-0014",
+      "name": "Pallof press",
+      "format": "sets_reps",
+      "media_url": "",
+      "details": "Anti-rotation core drill for trunk control and back protection.",
+      "tags": [
+        "core",
+        "balance",
+        "band",
+        "back-safe"
+      ],
+      "target_areas": [
+        "core",
+        "obliques"
+      ],
+      "equipment": [
+        "band"
+      ],
+      "difficulty": "moderate",
+      "pt_role": "main",
+      "contraindications": "Use a safe anchor and stop for sharp pain.",
+      "how_to": "Stand side-on to band anchor. Press band straight out, resist rotation, then return.",
+      "default_sets": 2,
+      "default_reps": 8,
+      "default_duration_seconds": 0,
+      "warning": "Keep hips and ribs quiet.",
+      "progression": "Step farther from anchor.",
+      "regression": "Lighter band or shorter press."
     }
   ],
   "readiness": [],
@@ -128,11 +551,274 @@
     }
   ],
   "safety_rules": [
-    "No aggressive back bends.",
-    "No forced back extension.",
+    "Follow any VA, doctor, or physical therapist restrictions.",
+    "Stop the session if pain becomes sharp, unsafe, dizzying, chest-related, nerve-like, or medically wrong.",
+    "No aggressive back bends or forced back extension.",
     "No running until walking base is adequate.",
-    "Stop if sharp pain appears.",
-    "Stop if pain shoots down the leg, numbness appears, or gait changes.",
-    "Scale workouts to current conditioning."
-  ]
+    "Scale workouts to current conditioning.",
+    "Discomfort is allowed. Stupidity is not."
+  ],
+  "fitness_seed_version": "0.1.20.0",
+  "exercise_groups": [
+    {
+      "id": "GRP-0001",
+      "name": "Main PT Alpha",
+      "type": "Core + Endurance",
+      "schedule_day": "Monday",
+      "schedule_time": "18:30",
+      "notes": "Primary rebuild day. Core first, engine second.",
+      "items": [
+        {
+          "id": "ITM-ALPHA-001",
+          "exercise_id": "EX-0001",
+          "sets": 2,
+          "reps": 8,
+          "duration_seconds": 0,
+          "distance": "",
+          "notes": "Clean reps each side."
+        },
+        {
+          "id": "ITM-ALPHA-002",
+          "exercise_id": "EX-0002",
+          "sets": 2,
+          "reps": 8,
+          "duration_seconds": 0,
+          "distance": "",
+          "notes": "Clean reps each side."
+        },
+        {
+          "id": "ITM-ALPHA-003",
+          "exercise_id": "EX-0003",
+          "sets": 2,
+          "reps": 10,
+          "duration_seconds": 0,
+          "distance": "",
+          "notes": "Pause briefly at the top."
+        },
+        {
+          "id": "ITM-ALPHA-004",
+          "exercise_id": "EX-0004",
+          "sets": 2,
+          "reps": 10,
+          "duration_seconds": 0,
+          "distance": "",
+          "notes": "Step-ups may substitute."
+        },
+        {
+          "id": "ITM-ALPHA-005",
+          "exercise_id": "EX-0009",
+          "sets": 1,
+          "reps": 0,
+          "duration_seconds": 900,
+          "distance": "",
+          "notes": "12-20 minutes steady pace."
+        }
+      ]
+    },
+    {
+      "id": "GRP-0002",
+      "name": "Daily Minimum",
+      "type": "Beloved Creature Maintenance",
+      "schedule_day": "Tuesday",
+      "schedule_time": "18:30",
+      "notes": "No-zero-days. Completion matters more than intensity.",
+      "items": [
+        {
+          "id": "ITM-MIN-001",
+          "exercise_id": "EX-0009",
+          "sets": 1,
+          "reps": 0,
+          "duration_seconds": 600,
+          "distance": "",
+          "notes": "5-10 minutes easy pace."
+        },
+        {
+          "id": "ITM-MIN-002",
+          "exercise_id": "EX-0001",
+          "sets": 1,
+          "reps": 6,
+          "duration_seconds": 0,
+          "distance": "",
+          "notes": "Heel taps may substitute."
+        },
+        {
+          "id": "ITM-MIN-003",
+          "exercise_id": "EX-0004",
+          "sets": 1,
+          "reps": 8,
+          "duration_seconds": 0,
+          "distance": "",
+          "notes": "Chair sit-to-stand or hip hinges."
+        }
+      ]
+    },
+    {
+      "id": "GRP-0003",
+      "name": "Main PT Bravo",
+      "type": "Strength Chassis + Core",
+      "schedule_day": "Wednesday",
+      "schedule_time": "18:30",
+      "notes": "Strengthen legs, hips, back, posture, and brace. Leave two reps in reserve.",
+      "items": [
+        {
+          "id": "ITM-BRAVO-001",
+          "exercise_id": "EX-0004",
+          "sets": 3,
+          "reps": 8,
+          "duration_seconds": 0,
+          "distance": "",
+          "notes": "Box squat or sit-to-stand."
+        },
+        {
+          "id": "ITM-BRAVO-002",
+          "exercise_id": "EX-0005",
+          "sets": 3,
+          "reps": 8,
+          "duration_seconds": 0,
+          "distance": "",
+          "notes": "Wall push-up may substitute."
+        },
+        {
+          "id": "ITM-BRAVO-003",
+          "exercise_id": "EX-0006",
+          "sets": 3,
+          "reps": 10,
+          "duration_seconds": 0,
+          "distance": "",
+          "notes": "Light row with controlled shoulder blades."
+        },
+        {
+          "id": "ITM-BRAVO-004",
+          "exercise_id": "EX-0007",
+          "sets": 4,
+          "reps": 0,
+          "duration_seconds": 45,
+          "distance": "",
+          "notes": "Farmer or suitcase carry."
+        },
+        {
+          "id": "ITM-BRAVO-005",
+          "exercise_id": "EX-0008",
+          "sets": 2,
+          "reps": 0,
+          "duration_seconds": 20,
+          "distance": "",
+          "notes": "Each side."
+        }
+      ]
+    },
+    {
+      "id": "GRP-0004",
+      "name": "Recovery Mobility",
+      "type": "Recovery + Check-In",
+      "schedule_day": "Thursday",
+      "schedule_time": "18:30",
+      "notes": "Recovery, range of motion, stiffness control, and readiness check.",
+      "items": [
+        {
+          "id": "ITM-REC-001",
+          "exercise_id": "EX-0009",
+          "sets": 1,
+          "reps": 0,
+          "duration_seconds": 600,
+          "distance": "",
+          "notes": "Easy walk."
+        },
+        {
+          "id": "ITM-REC-002",
+          "exercise_id": "EX-0011",
+          "sets": 2,
+          "reps": 0,
+          "duration_seconds": 30,
+          "distance": "",
+          "notes": "Each side."
+        },
+        {
+          "id": "ITM-REC-003",
+          "exercise_id": "EX-0013",
+          "sets": 2,
+          "reps": 0,
+          "duration_seconds": 30,
+          "distance": "",
+          "notes": "Each side."
+        },
+        {
+          "id": "ITM-REC-004",
+          "exercise_id": "EX-0012",
+          "sets": 1,
+          "reps": 8,
+          "duration_seconds": 0,
+          "distance": "",
+          "notes": "Slow reps."
+        }
+      ]
+    },
+    {
+      "id": "GRP-0005",
+      "name": "Main PT Charlie",
+      "type": "Endurance + Movement Discipline",
+      "schedule_day": "Friday",
+      "schedule_time": "18:30",
+      "notes": "Build the engine without turning it into a death march.",
+      "items": [
+        {
+          "id": "ITM-CHARLIE-001",
+          "exercise_id": "EX-0009",
+          "sets": 1,
+          "reps": 0,
+          "duration_seconds": 1500,
+          "distance": "",
+          "notes": "20-30 minutes steady pace."
+        },
+        {
+          "id": "ITM-CHARLIE-002",
+          "exercise_id": "EX-0010",
+          "sets": 5,
+          "reps": 0,
+          "duration_seconds": 180,
+          "distance": "",
+          "notes": "Optional interval path."
+        },
+        {
+          "id": "ITM-CHARLIE-003",
+          "exercise_id": "EX-0014",
+          "sets": 2,
+          "reps": 8,
+          "duration_seconds": 0,
+          "distance": "",
+          "notes": "Each side."
+        }
+      ]
+    },
+    {
+      "id": "GRP-0006",
+      "name": "Saturday Optional",
+      "type": "Technique / Stretch / Walk",
+      "schedule_day": "Saturday",
+      "schedule_time": "",
+      "notes": "Useful, not punitive. Light technique, stretch, mobility, or rest.",
+      "items": [
+        {
+          "id": "ITM-SAT-001",
+          "exercise_id": "EX-0009",
+          "sets": 1,
+          "reps": 0,
+          "duration_seconds": 900,
+          "distance": "",
+          "notes": "Optional 10-30 minute walk."
+        },
+        {
+          "id": "ITM-SAT-002",
+          "exercise_id": "EX-0011",
+          "sets": 2,
+          "reps": 0,
+          "duration_seconds": 30,
+          "distance": "",
+          "notes": "Optional stretch."
+        }
+      ]
+    }
+  ],
+  "next_exercise_number": 15,
+  "next_group_number": 7
 }

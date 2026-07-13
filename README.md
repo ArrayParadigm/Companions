@@ -44,11 +44,15 @@ python Companion_Web.py --host 127.0.0.1 --port 8787
   metadata and uploaded proof files. Council Mode
   copies base64 question packets per companion, imports their answers, and
   copies a consolidated answer with attribution.
-- Daily Check-ins: summary, check-in form, What Mattered Today, Royal Inspection,
-  Daily Minimums, and journal entry/readback controls.
-- Fitness: Recruit Rebuild command center with orders, editable workout groups,
-  an exercise database, group exercise prescriptions, mobility/cardio/strength
-  logs, progress notes, challenges, body metrics, and history.
+- Daily Check-ins: summary, check-in form, What Mattered Today, Array-only Royal
+  Inspection, Daily Minimums, and journal entry/readback controls.
+- Fitness: Recruit Rebuild command center with orders, scheduled workout
+  groups, the specific PT regimen, an Exercise Library tab with search/tag
+  filters/detail popup/add/edit/delete/add-to-group controls, mobility/cardio/
+  strength logs, progress notes, challenges, body metrics, and history. The
+  `0.1.20.0` app migration seeds `control_data/fitness.json` with the current
+  Recruit Rebuild PT plan, exercises, and groups the first time Fitness data is
+  loaded.
 - Spiritual: summary, daily KJV reading, extra Bible chapter reading, and prayer
   category review.
 - Projects: home, vehicle, and tech project todo management with status/sort

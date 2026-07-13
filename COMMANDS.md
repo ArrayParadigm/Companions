@@ -84,7 +84,8 @@ Each check-in uses nested `body`, `mind`, `spirit`, `work`, and `relationships`
 sections so the dashboard can render daily state, history, and category summaries.
 Quick-mode entries can also include `reflection`, `royal_inspection`, and
 `daily_minimums` objects. Eve Console reads those objects from Daily Check-ins
-instead of copying them into a separate store.
+instead of copying them into a separate store. Royal Inspection is an Array-only
+tab and the API rejects royal check-in payloads for non-Array profiles.
 The `spirit` section only records the Daily Check-ins reading-complete
 confirmation. Fitness detail is entered from the Fitness tab; Daily Check-ins
 only stores a fitness-complete checkbox. Detailed Bible chapter progress is
@@ -179,3 +180,11 @@ metrics, and history in:
 ```text
 control_data/fitness.json
 ```
+
+The `0.1.20.0` seed migrates that JSON to the current Recruit Rebuild PT plan:
+scheduled workout groups, an exercise library, exercise prescriptions, safety
+rules, and detailed exercise metadata. Exercise records support tags,
+target_areas, equipment, difficulty, pt_role, how_to, contraindications,
+default_sets, default_reps, and default_duration_seconds. The Fitness Exercise
+Library tab can search/filter those exercises, open a details popup, add/edit/
+delete exercises, and add an exercise directly to a selected workout group.

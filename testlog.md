@@ -1,5 +1,18 @@
 # Test Log
 
+## 2026-07-12 - 0.1.20.0 Fitness And Royal Inspection Sprint
+
+| Severity | Area | Result | Notes |
+| --- | --- | --- | --- |
+| Info | Static compile | Pass | `python -m py_compile Companion_Web.py Memory_Manager.py` passed. |
+| Info | Compileall | Pass | `python -m compileall -q Companion_Web.py Memory_Manager.py` passed. |
+| Info | Isolated fitness/Royal smoke | Pass | Temporary control data verified the `0.1.20.0` fitness seed migration, 14 exercise records, 6 workout groups, exercise metadata create/edit, add-to-group, and Royal Inspection payload detection. |
+| Info | Local fitness seed | Pass | `control_data/fitness.json` was updated to `fitness_seed_version` `0.1.20.0` with Main PT Alpha, Daily Minimum, Main PT Bravo, Recovery Mobility, Main PT Charlie, and Saturday Optional groups. |
+| Info | JSON validation | Pass | `companion-files.json`, `control_data/*.json`, and `tracker_data/*.json` parse successfully across 15 files. |
+| Info | Copyover check | Pass | `cmd /c copyover.bat --check` detected `D:\000_Files\002_Projects\EVE\MS\Companions-1`, version `0.1.20.0`, and copied no files. |
+| Info | Whitespace gate | Pass | `git diff --check` reported no whitespace errors; Git only warned that edited text files will be normalized from LF to CRLF when touched. |
+| Low | Browser testing | Not run | Per repo TODO guidance, no browser-based test was run; UI behavior was covered with static markers and isolated function/API-adjacent smoke checks. |
+
 ## 2026-07-12 - 0.1.19.0 TODO Sprint
 
 | Severity | Area | Result | Notes |

@@ -924,67 +924,446 @@ def diet_store():
     return read_json(profile_data_file("diet.json"), {"next_inventory_number": 1, "next_food_number": 1, "inventory": [], "food_diary": []})
 
 
+FITNESS_SEED_VERSION = "0.1.20.0"
+
+
+def default_fitness_exercises():
+    return [
+        {
+            "id": "EX-0001",
+            "name": "Dead bug",
+            "format": "sets_reps",
+            "media_url": "",
+            "details": "Lie on your back, brace gently, and move the opposite arm and leg slowly without arching the lower back.",
+            "tags": ["core", "back-safe", "no-equipment"],
+            "target_areas": ["core", "lower back protection"],
+            "equipment": ["floor"],
+            "difficulty": "easy",
+            "pt_role": "main",
+            "contraindications": "Stop for sharp back pain, dizziness, nerve symptoms, or unsafe pain.",
+            "how_to": "Brace gently. Keep ribs down. Extend one heel and the opposite arm only as far as the back stays quiet. Return with control.",
+            "default_sets": 2,
+            "default_reps": 8,
+            "default_duration_seconds": 0,
+            "warning": "Stop if the lower back arches or sharp pain appears.",
+            "progression": "Extend the legs farther or add reps.",
+            "regression": "Move arms only, legs only, or use heel taps.",
+        },
+        {
+            "id": "EX-0002",
+            "name": "Bird dog",
+            "format": "sets_reps",
+            "media_url": "",
+            "details": "Controlled opposite arm and leg reach for core stability, hips, and back-safe coordination.",
+            "tags": ["core", "balance", "mobility", "back-safe"],
+            "target_areas": ["core", "hips", "posterior chain"],
+            "equipment": ["floor"],
+            "difficulty": "easy",
+            "pt_role": "main",
+            "contraindications": "Stop if kneeling or spinal extension causes unsafe pain.",
+            "how_to": "Start on hands and knees. Brace gently. Reach opposite arm and leg long, pause, then return without twisting.",
+            "default_sets": 2,
+            "default_reps": 8,
+            "default_duration_seconds": 0,
+            "warning": "Avoid dumping into the low back or rotating the hips open.",
+            "progression": "Longer pause at full reach.",
+            "regression": "Move one limb at a time.",
+        },
+        {
+            "id": "EX-0003",
+            "name": "Glute bridge",
+            "format": "sets_reps",
+            "media_url": "",
+            "details": "Hip and posterior-chain rebuild movement that supports posture and lower-back protection.",
+            "tags": ["strength", "core", "posterior-chain", "no-equipment"],
+            "target_areas": ["glutes", "hips", "posterior chain"],
+            "equipment": ["floor"],
+            "difficulty": "easy",
+            "pt_role": "main",
+            "contraindications": "Avoid aggressive back arching.",
+            "how_to": "Lie on your back, feet planted. Brace lightly, squeeze glutes, lift hips until body forms a straight line, then lower.",
+            "default_sets": 2,
+            "default_reps": 10,
+            "default_duration_seconds": 0,
+            "warning": "No aggressive back arch.",
+            "progression": "Add a pause at the top.",
+            "regression": "Reduce range or reps.",
+        },
+        {
+            "id": "EX-0004",
+            "name": "Sit-to-stand",
+            "format": "sets_reps",
+            "media_url": "",
+            "details": "Chair-based squat pattern for legs, hips, balance, and functional strength.",
+            "tags": ["strength", "legs", "balance", "functional"],
+            "target_areas": ["quads", "glutes", "hips"],
+            "equipment": ["chair"],
+            "difficulty": "easy",
+            "pt_role": "main",
+            "contraindications": "Stop for sharp knee, hip, or back pain.",
+            "how_to": "Sit tall on a stable chair. Stand with control, keep knees tracking over feet, then sit back down softly.",
+            "default_sets": 2,
+            "default_reps": 8,
+            "default_duration_seconds": 0,
+            "warning": "Do not collapse the knees inward.",
+            "progression": "Lower the chair height or add a slow tempo.",
+            "regression": "Use hands lightly for support.",
+        },
+        {
+            "id": "EX-0005",
+            "name": "Incline push-up",
+            "format": "sets_reps",
+            "media_url": "",
+            "details": "Upper-body push rebuild with scalable incline.",
+            "tags": ["strength", "upper-body", "push"],
+            "target_areas": ["chest", "shoulders", "triceps", "core"],
+            "equipment": ["counter", "bench", "wall"],
+            "difficulty": "easy",
+            "pt_role": "main",
+            "contraindications": "Stop for sharp shoulder, wrist, or chest pain.",
+            "how_to": "Hands on a stable incline. Keep a straight line from head to heel, lower under control, press back up.",
+            "default_sets": 3,
+            "default_reps": 8,
+            "default_duration_seconds": 0,
+            "warning": "Keep shoulders controlled and ribs from flaring.",
+            "progression": "Use a lower incline.",
+            "regression": "Use a wall or higher support.",
+        },
+        {
+            "id": "EX-0006",
+            "name": "Band row",
+            "format": "sets_reps",
+            "media_url": "",
+            "details": "Pulling strength for posture, shoulders, and upper-back balance.",
+            "tags": ["strength", "upper-back", "posture", "band"],
+            "target_areas": ["upper back", "lats", "rear shoulders"],
+            "equipment": ["band"],
+            "difficulty": "easy",
+            "pt_role": "main",
+            "contraindications": "Use a safe anchor and stop for sharp shoulder pain.",
+            "how_to": "Anchor band safely. Pull elbows back, squeeze shoulder blades gently, then return under control.",
+            "default_sets": 3,
+            "default_reps": 10,
+            "default_duration_seconds": 0,
+            "warning": "Do not shrug or yank.",
+            "progression": "Use a stronger band or slower tempo.",
+            "regression": "Use a lighter band.",
+        },
+        {
+            "id": "EX-0007",
+            "name": "Farmer carry",
+            "format": "duration_distance",
+            "media_url": "",
+            "details": "Loaded carry for grip, trunk stiffness, posture, and practical work capacity.",
+            "tags": ["strength", "core", "endurance", "functional"],
+            "target_areas": ["core", "grip", "shoulders", "hips"],
+            "equipment": ["dumbbells", "bags", "jugs"],
+            "difficulty": "moderate",
+            "pt_role": "main",
+            "contraindications": "Stop if load changes gait or causes unsafe back pain.",
+            "how_to": "Hold weight at sides, stand tall, walk steadily, and keep breathing.",
+            "default_sets": 4,
+            "default_reps": 0,
+            "default_duration_seconds": 45,
+            "warning": "Do not lean or rush.",
+            "progression": "Add time before load.",
+            "regression": "Use lighter objects or shorter rounds.",
+        },
+        {
+            "id": "EX-0008",
+            "name": "Side plank from knees",
+            "format": "duration_reps",
+            "media_url": "",
+            "details": "Side-core stability drill with reduced load.",
+            "tags": ["core", "balance", "back-safe"],
+            "target_areas": ["obliques", "hips", "core"],
+            "equipment": ["floor"],
+            "difficulty": "easy",
+            "pt_role": "main",
+            "contraindications": "Stop for shoulder or sharp back pain.",
+            "how_to": "Support on forearm and knees. Lift hips, keep a straight line from shoulder to knee, breathe.",
+            "default_sets": 2,
+            "default_reps": 0,
+            "default_duration_seconds": 20,
+            "warning": "Do not sag or twist.",
+            "progression": "Longer holds or full side plank.",
+            "regression": "Standing side brace against a wall.",
+        },
+        {
+            "id": "EX-0009",
+            "name": "Easy walk",
+            "format": "duration_distance",
+            "media_url": "",
+            "details": "Low-impact endurance base builder.",
+            "tags": ["endurance", "cardio", "daily-minimum", "no-equipment"],
+            "target_areas": ["heart", "legs", "stamina"],
+            "equipment": ["shoes"],
+            "difficulty": "easy",
+            "pt_role": "daily_minimum",
+            "contraindications": "Stop for chest symptoms, dizziness, unsafe gait, or sharp pain.",
+            "how_to": "Walk at a pace that keeps breathing controlled. Keep posture tall and stride comfortable.",
+            "default_sets": 1,
+            "default_reps": 0,
+            "default_duration_seconds": 600,
+            "warning": "No running until the walking base earns it.",
+            "progression": "Add minutes before intensity.",
+            "regression": "Indoor pacing or shorter rounds.",
+        },
+        {
+            "id": "EX-0010",
+            "name": "Light intervals",
+            "format": "duration_reps",
+            "media_url": "",
+            "details": "One minute brisk, two minutes easy, repeated for controlled endurance work.",
+            "tags": ["endurance", "cardio", "intervals"],
+            "target_areas": ["heart", "legs", "breathing"],
+            "equipment": ["shoes", "bike", "treadmill"],
+            "difficulty": "moderate",
+            "pt_role": "main",
+            "contraindications": "Do not use if pain, breath, or gait is unstable.",
+            "how_to": "Warm up first. Alternate one minute brisk with two minutes easy for five rounds.",
+            "default_sets": 5,
+            "default_reps": 0,
+            "default_duration_seconds": 180,
+            "warning": "This is brisk, not reckless.",
+            "progression": "Add one round after recovery is consistent.",
+            "regression": "Use steady easy walking.",
+        },
+        {
+            "id": "EX-0011",
+            "name": "Hamstring stretch",
+            "format": "duration_reps",
+            "media_url": "",
+            "details": "Gentle hamstring mobility for forward-fold progress and lower-body comfort.",
+            "tags": ["mobility", "hamstrings", "recovery"],
+            "target_areas": ["hamstrings", "posterior chain"],
+            "equipment": ["chair", "floor"],
+            "difficulty": "easy",
+            "pt_role": "recovery",
+            "contraindications": "Avoid nerve pain, numbness, or aggressive pulling.",
+            "how_to": "Keep the knee soft, hinge gently, and breathe into a mild stretch.",
+            "default_sets": 2,
+            "default_reps": 0,
+            "default_duration_seconds": 30,
+            "warning": "No bouncing.",
+            "progression": "Add time gradually.",
+            "regression": "Use a seated version.",
+        },
+        {
+            "id": "EX-0012",
+            "name": "Cat-cow",
+            "format": "duration_reps",
+            "media_url": "",
+            "details": "Gentle spinal motion for stiffness control.",
+            "tags": ["mobility", "back-safe", "recovery"],
+            "target_areas": ["spine", "lower back"],
+            "equipment": ["floor"],
+            "difficulty": "easy",
+            "pt_role": "recovery",
+            "contraindications": "Avoid forced back extension.",
+            "how_to": "On hands and knees, move slowly between gentle rounding and gentle extension.",
+            "default_sets": 1,
+            "default_reps": 8,
+            "default_duration_seconds": 0,
+            "warning": "Move through comfortable range only.",
+            "progression": "Slower controlled reps.",
+            "regression": "Smaller range.",
+        },
+        {
+            "id": "EX-0013",
+            "name": "Hip flexor stretch",
+            "format": "duration_reps",
+            "media_url": "",
+            "details": "Recovery stretch for hips and posture.",
+            "tags": ["mobility", "hips", "recovery"],
+            "target_areas": ["hip flexors", "quads"],
+            "equipment": ["floor", "chair"],
+            "difficulty": "easy",
+            "pt_role": "recovery",
+            "contraindications": "Use support if balance or knees complain.",
+            "how_to": "Use a supported lunge or standing version. Tuck pelvis gently and breathe.",
+            "default_sets": 2,
+            "default_reps": 0,
+            "default_duration_seconds": 30,
+            "warning": "Do not force the low back into extension.",
+            "progression": "Add time slowly.",
+            "regression": "Standing supported stretch.",
+        },
+        {
+            "id": "EX-0014",
+            "name": "Pallof press",
+            "format": "sets_reps",
+            "media_url": "",
+            "details": "Anti-rotation core drill for trunk control and back protection.",
+            "tags": ["core", "balance", "band", "back-safe"],
+            "target_areas": ["core", "obliques"],
+            "equipment": ["band"],
+            "difficulty": "moderate",
+            "pt_role": "main",
+            "contraindications": "Use a safe anchor and stop for sharp pain.",
+            "how_to": "Stand side-on to band anchor. Press band straight out, resist rotation, then return.",
+            "default_sets": 2,
+            "default_reps": 8,
+            "default_duration_seconds": 0,
+            "warning": "Keep hips and ribs quiet.",
+            "progression": "Step farther from anchor.",
+            "regression": "Lighter band or shorter press.",
+        },
+    ]
+
+
+def default_fitness_groups():
+    return [
+        {
+            "id": "GRP-0001",
+            "name": "Main PT Alpha",
+            "type": "Core + Endurance",
+            "schedule_day": "Monday",
+            "schedule_time": "18:30",
+            "notes": "Primary rebuild day. Core first, engine second.",
+            "items": [
+                {"id": "ITM-ALPHA-001", "exercise_id": "EX-0001", "sets": 2, "reps": 8, "duration_seconds": 0, "distance": "", "notes": "Clean reps each side."},
+                {"id": "ITM-ALPHA-002", "exercise_id": "EX-0002", "sets": 2, "reps": 8, "duration_seconds": 0, "distance": "", "notes": "Clean reps each side."},
+                {"id": "ITM-ALPHA-003", "exercise_id": "EX-0003", "sets": 2, "reps": 10, "duration_seconds": 0, "distance": "", "notes": "Pause briefly at the top."},
+                {"id": "ITM-ALPHA-004", "exercise_id": "EX-0004", "sets": 2, "reps": 10, "duration_seconds": 0, "distance": "", "notes": "Step-ups may substitute."},
+                {"id": "ITM-ALPHA-005", "exercise_id": "EX-0009", "sets": 1, "reps": 0, "duration_seconds": 900, "distance": "", "notes": "12-20 minutes steady pace."},
+            ],
+        },
+        {
+            "id": "GRP-0002",
+            "name": "Daily Minimum",
+            "type": "Beloved Creature Maintenance",
+            "schedule_day": "Tuesday",
+            "schedule_time": "18:30",
+            "notes": "No-zero-days. Completion matters more than intensity.",
+            "items": [
+                {"id": "ITM-MIN-001", "exercise_id": "EX-0009", "sets": 1, "reps": 0, "duration_seconds": 600, "distance": "", "notes": "5-10 minutes easy pace."},
+                {"id": "ITM-MIN-002", "exercise_id": "EX-0001", "sets": 1, "reps": 6, "duration_seconds": 0, "distance": "", "notes": "Heel taps may substitute."},
+                {"id": "ITM-MIN-003", "exercise_id": "EX-0004", "sets": 1, "reps": 8, "duration_seconds": 0, "distance": "", "notes": "Chair sit-to-stand or hip hinges."},
+            ],
+        },
+        {
+            "id": "GRP-0003",
+            "name": "Main PT Bravo",
+            "type": "Strength Chassis + Core",
+            "schedule_day": "Wednesday",
+            "schedule_time": "18:30",
+            "notes": "Strengthen legs, hips, back, posture, and brace. Leave two reps in reserve.",
+            "items": [
+                {"id": "ITM-BRAVO-001", "exercise_id": "EX-0004", "sets": 3, "reps": 8, "duration_seconds": 0, "distance": "", "notes": "Box squat or sit-to-stand."},
+                {"id": "ITM-BRAVO-002", "exercise_id": "EX-0005", "sets": 3, "reps": 8, "duration_seconds": 0, "distance": "", "notes": "Wall push-up may substitute."},
+                {"id": "ITM-BRAVO-003", "exercise_id": "EX-0006", "sets": 3, "reps": 10, "duration_seconds": 0, "distance": "", "notes": "Light row with controlled shoulder blades."},
+                {"id": "ITM-BRAVO-004", "exercise_id": "EX-0007", "sets": 4, "reps": 0, "duration_seconds": 45, "distance": "", "notes": "Farmer or suitcase carry."},
+                {"id": "ITM-BRAVO-005", "exercise_id": "EX-0008", "sets": 2, "reps": 0, "duration_seconds": 20, "distance": "", "notes": "Each side."},
+            ],
+        },
+        {
+            "id": "GRP-0004",
+            "name": "Recovery Mobility",
+            "type": "Recovery + Check-In",
+            "schedule_day": "Thursday",
+            "schedule_time": "18:30",
+            "notes": "Recovery, range of motion, stiffness control, and readiness check.",
+            "items": [
+                {"id": "ITM-REC-001", "exercise_id": "EX-0009", "sets": 1, "reps": 0, "duration_seconds": 600, "distance": "", "notes": "Easy walk."},
+                {"id": "ITM-REC-002", "exercise_id": "EX-0011", "sets": 2, "reps": 0, "duration_seconds": 30, "distance": "", "notes": "Each side."},
+                {"id": "ITM-REC-003", "exercise_id": "EX-0013", "sets": 2, "reps": 0, "duration_seconds": 30, "distance": "", "notes": "Each side."},
+                {"id": "ITM-REC-004", "exercise_id": "EX-0012", "sets": 1, "reps": 8, "duration_seconds": 0, "distance": "", "notes": "Slow reps."},
+            ],
+        },
+        {
+            "id": "GRP-0005",
+            "name": "Main PT Charlie",
+            "type": "Endurance + Movement Discipline",
+            "schedule_day": "Friday",
+            "schedule_time": "18:30",
+            "notes": "Build the engine without turning it into a death march.",
+            "items": [
+                {"id": "ITM-CHARLIE-001", "exercise_id": "EX-0009", "sets": 1, "reps": 0, "duration_seconds": 1500, "distance": "", "notes": "20-30 minutes steady pace."},
+                {"id": "ITM-CHARLIE-002", "exercise_id": "EX-0010", "sets": 5, "reps": 0, "duration_seconds": 180, "distance": "", "notes": "Optional interval path."},
+                {"id": "ITM-CHARLIE-003", "exercise_id": "EX-0014", "sets": 2, "reps": 8, "duration_seconds": 0, "distance": "", "notes": "Each side."},
+            ],
+        },
+        {
+            "id": "GRP-0006",
+            "name": "Saturday Optional",
+            "type": "Technique / Stretch / Walk",
+            "schedule_day": "Saturday",
+            "schedule_time": "",
+            "notes": "Useful, not punitive. Light technique, stretch, mobility, or rest.",
+            "items": [
+                {"id": "ITM-SAT-001", "exercise_id": "EX-0009", "sets": 1, "reps": 0, "duration_seconds": 900, "distance": "", "notes": "Optional 10-30 minute walk."},
+                {"id": "ITM-SAT-002", "exercise_id": "EX-0011", "sets": 2, "reps": 0, "duration_seconds": 30, "distance": "", "notes": "Optional stretch."},
+            ],
+        },
+    ]
+
+
+def default_workout_plan():
+    return {
+        "mission": [
+            "Rebuild the chassis.",
+            "Strengthen the core.",
+            "Improve endurance.",
+            "Restore consistency.",
+        ],
+        "weekly_structure": [
+            "Monday: Main PT Alpha - Core + Endurance",
+            "Tuesday: Daily Minimum - Beloved Creature Maintenance",
+            "Wednesday: Main PT Bravo - Strength Chassis + Core",
+            "Thursday: Recovery Mobility + Check-In",
+            "Friday: Main PT Charlie - Endurance + Movement Discipline",
+            "Saturday: Optional light walk, technique, stretch, or mobility",
+            "Sunday: Rest, review, plan next week",
+        ],
+        "primary_focus": [
+            "Core stability",
+            "Endurance",
+            "Functional strength",
+            "Mobility and recovery",
+            "Consistency over ego",
+        ],
+        "daily_minimum": [
+            "Drink water first",
+            "Neck and shoulder rolls: 1 minute",
+            "Hip hinges or chair sit-to-stand: 1 set x 8",
+            "Calf raises: 1 set x 10",
+            "Dead bug, heel taps, or brace breathing: 1 set x 6",
+            "Easy walk: 5-10 minutes",
+        ],
+        "sunday_review": [
+            "Review weekly completion",
+            "Review pain trend",
+            "Review energy trend",
+            "Name best win",
+            "Name biggest obstacle",
+            "Set Monday, Wednesday, and Friday training times",
+        ],
+    }
+
+
 def default_fitness_store():
     return {
+        "fitness_seed_version": FITNESS_SEED_VERSION,
         "phase": "Recruit Intake",
         "status": "Recruit Rebuild",
-        "evie_note": "Dad, today is not heroic. Today is consistency. Walk, stretch, report back. No negotiating.",
+        "evie_note": "Core first. Engine second. Clean form, honest report, no random hero workouts.",
         "next_readiness_number": 1,
-        "next_order_number": 4,
+        "next_order_number": 6,
         "next_log_number": 1,
         "next_challenge_number": 2,
         "orders": [
-            {"id": "ORD-0001", "title": "10-minute walk", "details": "Easy pace. No running.", "status": "open", "type": "cardio", "due_date": "", "report": "", "skip_reason": ""},
-            {"id": "ORD-0002", "title": "Mobility: hamstrings + cat-cow + calf stretch", "details": "Move gently. No aggressive back extension.", "status": "open", "type": "mobility", "due_date": "", "report": "", "skip_reason": ""},
-            {"id": "ORD-0003", "title": "Small home task", "details": "One small home task. Keep it bounded.", "status": "open", "type": "discipline", "due_date": "", "report": "", "skip_reason": ""},
+            {"id": "ORD-0001", "title": "Main PT Alpha", "details": "Monday core + endurance. Clean form. No hero nonsense.", "status": "open", "type": "fitness", "due_date": "", "report": "", "skip_reason": ""},
+            {"id": "ORD-0002", "title": "Daily Minimum", "details": "Water first, small mobility, easy movement, no-zero-day maintenance.", "status": "open", "type": "daily_minimum", "due_date": "", "report": "", "skip_reason": ""},
+            {"id": "ORD-0003", "title": "Main PT Bravo", "details": "Wednesday strength chassis + core. Leave two reps in reserve.", "status": "open", "type": "strength", "due_date": "", "report": "", "skip_reason": ""},
+            {"id": "ORD-0004", "title": "Recovery Mobility + Check-In", "details": "Thursday recovery, stiffness control, pain and energy check.", "status": "open", "type": "mobility", "due_date": "", "report": "", "skip_reason": ""},
+            {"id": "ORD-0005", "title": "Main PT Charlie", "details": "Friday endurance + movement discipline. Steady engine work.", "status": "open", "type": "cardio", "due_date": "", "report": "", "skip_reason": ""},
         ],
-        "workout_plan": {
-            "weekly_structure": [
-                "Monday: Strength A",
-                "Tuesday: Walk + Mobility",
-                "Wednesday: Recovery / Easy Walk",
-                "Thursday: Strength B",
-                "Friday: Walk Intervals",
-                "Saturday: Chore Conditioning / Yard Work",
-                "Sunday: Rest + Stretch",
-            ],
-            "daily_minimum": ["10-minute walk", "5-minute mobility", "1 small home task"],
-            "strength_a": ["Chair squats or bodyweight squats: 2x8", "Incline pushups: 2x6", "Glute bridges: 2x10", "Dead bugs: 2x6 per side", "Easy hamstring stretch: 30 seconds per side"],
-            "cardio_base": ["Walk 15-20 minutes", "Last 3 minutes slightly faster", "No running unless conditioning earns it"],
-            "forward_fold": ["Seated hamstring stretch: 45 seconds per side", "Standing soft-knee forward hang: 30 seconds", "Calf stretch: 30 seconds per side", "Cat-cow: 6 slow reps"],
-        },
-        "exercise_library": [
-            {"id": "EX-0001", "name": "Dead bug", "format": "sets_reps", "media_url": "", "details": "Core stability and lower-back protection.", "warning": "Stop if sharp back pain appears.", "progression": "Increase reps or extend legs farther.", "regression": "Move arms only or legs only."},
-            {"id": "EX-0002", "name": "Chair squat", "format": "sets_reps", "media_url": "", "details": "Rebuild squat pattern safely.", "warning": "Stop for sharp knee or back pain.", "progression": "Lower the chair height.", "regression": "Use hands for support."},
-            {"id": "EX-0003", "name": "Incline pushup", "format": "sets_reps", "media_url": "", "details": "Rebuild push strength.", "warning": "Stop for shoulder pain.", "progression": "Lower the incline.", "regression": "Use a higher support."},
-            {"id": "EX-0004", "name": "Glute bridge", "format": "sets_reps", "media_url": "", "details": "Rebuild hips and posterior chain.", "warning": "No aggressive back arch.", "progression": "Add pauses.", "regression": "Reduce range."},
-            {"id": "EX-0005", "name": "Cat-cow", "format": "duration_reps", "media_url": "", "details": "Gentle spinal motion.", "warning": "Avoid forced extension.", "progression": "Slower controlled reps.", "regression": "Smaller range."},
-            {"id": "EX-0006", "name": "Walk", "format": "duration_distance", "media_url": "", "details": "Easy cardio base builder.", "warning": "No running until walking base is adequate.", "progression": "Add minutes before intensity.", "regression": "Shorter walk or indoor pacing."},
-        ],
-        "exercise_groups": [
-            {
-                "id": "GRP-0001",
-                "name": "Strength A",
-                "type": "Strength",
-                "notes": "Low-back cautious strength base.",
-                "items": [
-                    {"exercise_id": "EX-0002", "sets": 2, "reps": 8, "duration_seconds": 0, "distance": "", "notes": "Use chair height that keeps form clean."},
-                    {"exercise_id": "EX-0003", "sets": 2, "reps": 6, "duration_seconds": 0, "distance": "", "notes": "Use a high incline if needed."},
-                    {"exercise_id": "EX-0004", "sets": 2, "reps": 10, "duration_seconds": 0, "distance": "", "notes": "Pause briefly at the top."},
-                ],
-            },
-            {
-                "id": "GRP-0002",
-                "name": "Cardio A",
-                "type": "Cardio",
-                "notes": "Simple walking base.",
-                "items": [
-                    {"exercise_id": "EX-0006", "sets": 1, "reps": 0, "duration_seconds": 600, "distance": "", "notes": "Easy pace."},
-                ],
-            },
-        ],
-        "next_exercise_number": 7,
-        "next_group_number": 3,
+        "workout_plan": default_workout_plan(),
+        "exercise_library": default_fitness_exercises(),
+        "exercise_groups": default_fitness_groups(),
+        "next_exercise_number": 15,
+        "next_group_number": 7,
         "readiness": [],
         "mobility": [],
         "cardio": [],
@@ -996,14 +1375,30 @@ def default_fitness_store():
             {"id": "CHG-0001", "name": "One-Mile Trial", "type": "Army-style trial", "requirements": "Walk or walk/jog one mile and report time, breathing, legs, and back.", "status": "locked", "safety_notes": "Unlock after walking base is consistent.", "report": ""},
         ],
         "safety_rules": [
-            "No aggressive back bends.",
-            "No forced back extension.",
+            "Follow any VA, doctor, or physical therapist restrictions.",
+            "Stop the session if pain becomes sharp, unsafe, dizzying, chest-related, nerve-like, or medically wrong.",
+            "No aggressive back bends or forced back extension.",
             "No running until walking base is adequate.",
-            "Stop if sharp pain appears.",
-            "Stop if pain shoots down the leg, numbness appears, or gait changes.",
             "Scale workouts to current conditioning.",
+            "Discomfort is allowed. Stupidity is not.",
         ],
     }
+
+
+def seed_fitness_store(store):
+    store["fitness_seed_version"] = FITNESS_SEED_VERSION
+    store["phase"] = "Recruit Intake"
+    store["status"] = "Recruit Rebuild"
+    store["evie_note"] = "Core first. Engine second. Clean form, honest report, no random hero workouts."
+    store["orders"] = default_fitness_store()["orders"]
+    store["workout_plan"] = default_workout_plan()
+    store["exercise_library"] = default_fitness_exercises()
+    store["exercise_groups"] = default_fitness_groups()
+    store["next_order_number"] = 6
+    store["next_exercise_number"] = 15
+    store["next_group_number"] = 7
+    store["safety_rules"] = default_fitness_store()["safety_rules"]
+    return store
 
 
 def fitness_store():
@@ -1012,6 +1407,9 @@ def fitness_store():
     store = read_json(profile_data_file("fitness.json"), default_fitness_store())
     changed = False
     defaults = default_fitness_store()
+    if store.get("fitness_seed_version") != FITNESS_SEED_VERSION:
+        seed_fitness_store(store)
+        changed = True
     for key, value in defaults.items():
         if key not in store:
             store[key] = value
@@ -1046,9 +1444,29 @@ def normalize_fitness_exercises(store):
             "warning": "",
             "progression": "",
             "regression": "",
+            "difficulty": "easy",
+            "pt_role": "main",
+            "contraindications": "",
+            "how_to": "",
         }.items():
             if key not in exercise:
                 exercise[key] = fallback
+                changed = True
+        for key in ("tags", "target_areas", "equipment"):
+            if key not in exercise:
+                exercise[key] = []
+                changed = True
+            elif isinstance(exercise[key], str):
+                exercise[key] = clean_string_list(exercise[key])
+                changed = True
+        for key, fallback in {
+            "default_sets": 0,
+            "default_reps": 0,
+            "default_duration_seconds": 0,
+        }.items():
+            value = clean_int(exercise.get(key), default=fallback, minimum=0)
+            if exercise.get(key) != value:
+                exercise[key] = value
                 changed = True
     minimum_next = max(used_numbers or [0]) + 1
     if clean_int(store.get("next_exercise_number"), default=1, minimum=1) < minimum_next:
@@ -1075,8 +1493,13 @@ def normalize_fitness_groups(store):
         group.setdefault("name", "Workout Group")
         group.setdefault("type", "")
         group.setdefault("notes", "")
+        group.setdefault("schedule_day", "")
+        group.setdefault("schedule_time", "")
         group.setdefault("items", [])
         for item in group["items"]:
+            if not item.get("id"):
+                item["id"] = f"ITM-{uuid.uuid4().hex[:8].upper()}"
+                changed = True
             item.setdefault("exercise_id", "")
             item["sets"] = clean_int(item.get("sets"), default=0, minimum=0)
             item["reps"] = clean_int(item.get("reps"), default=0, minimum=0)
@@ -1601,6 +2024,25 @@ def create_checkin(data):
     return entry
 
 
+def is_royal_checkin_payload(data):
+    royal_keys = {
+        "crown_mode",
+        "fed",
+        "watered",
+        "water_oz",
+        "rested",
+        "pain_energy_note",
+        "realm_safe",
+        "clutter_level",
+        "realm_improving",
+        "threat_removed",
+        "devotions",
+        "next_command_requested",
+        "royal_notes",
+    }
+    return any(key in data for key in royal_keys)
+
+
 def create_journal_entry(data):
     path = profile_tracker_files()["journal"]
     entries = read_json(path, [])
@@ -1738,17 +2180,34 @@ def create_fitness_order(data):
     return order
 
 
+def fitness_exercise_payload(data, existing=None):
+    existing = existing or {}
+    return {
+        "name": str(data.get("name", existing.get("name", "")) or "").strip(),
+        "format": str(data.get("format", existing.get("format", "sets_reps")) or "sets_reps").strip() or "sets_reps",
+        "media_url": str(data.get("media_url", existing.get("media_url", "")) or "").strip(),
+        "details": str(data.get("details", data.get("purpose", existing.get("details", ""))) or "").strip(),
+        "tags": clean_string_list(data.get("tags", existing.get("tags", []))),
+        "target_areas": clean_string_list(data.get("target_areas", existing.get("target_areas", []))),
+        "equipment": clean_string_list(data.get("equipment", existing.get("equipment", []))),
+        "difficulty": str(data.get("difficulty", existing.get("difficulty", "easy")) or "easy").strip(),
+        "pt_role": str(data.get("pt_role", existing.get("pt_role", "main")) or "main").strip(),
+        "contraindications": str(data.get("contraindications", existing.get("contraindications", "")) or "").strip(),
+        "how_to": str(data.get("how_to", existing.get("how_to", "")) or "").strip(),
+        "default_sets": clean_int(data.get("default_sets", existing.get("default_sets", 0)), default=0, minimum=0),
+        "default_reps": clean_int(data.get("default_reps", existing.get("default_reps", 0)), default=0, minimum=0),
+        "default_duration_seconds": clean_int(data.get("default_duration_seconds", existing.get("default_duration_seconds", 0)), default=0, minimum=0),
+        "warning": str(data.get("warning", existing.get("warning", "")) or "").strip(),
+        "progression": str(data.get("progression", existing.get("progression", "")) or "").strip(),
+        "regression": str(data.get("regression", existing.get("regression", "")) or "").strip(),
+    }
+
+
 def create_fitness_exercise(data):
     store = fitness_store()
     exercise = {
         "id": next_id(store, "next_exercise_number", "EX"),
-        "name": str(data.get("name") or "").strip(),
-        "format": str(data.get("format") or "sets_reps").strip() or "sets_reps",
-        "media_url": str(data.get("media_url") or "").strip(),
-        "details": str(data.get("details") or data.get("purpose") or "").strip(),
-        "warning": str(data.get("warning") or "").strip(),
-        "progression": str(data.get("progression") or "").strip(),
-        "regression": str(data.get("regression") or "").strip(),
+        **fitness_exercise_payload(data),
         "created_at": now_stamp(),
         "updated_at": now_stamp(),
     }
@@ -1763,9 +2222,7 @@ def update_fitness_exercise(exercise_id, data):
     store = fitness_store()
     for exercise in store.get("exercise_library", []):
         if exercise.get("id", "").lower() == exercise_id.lower():
-            for key in ("name", "format", "media_url", "details", "warning", "progression", "regression"):
-                if key in data:
-                    exercise[key] = str(data.get(key) or "").strip()
+            exercise.update(fitness_exercise_payload(data, exercise))
             if not exercise.get("name"):
                 raise ValueError("Exercise name is required.")
             exercise["updated_at"] = now_stamp()
@@ -1797,6 +2254,8 @@ def create_fitness_group(data):
         "name": str(data.get("name") or "").strip(),
         "type": str(data.get("type") or "").strip(),
         "notes": str(data.get("notes") or "").strip(),
+        "schedule_day": str(data.get("schedule_day") or "").strip(),
+        "schedule_time": str(data.get("schedule_time") or "").strip(),
         "items": [],
         "created_at": now_stamp(),
         "updated_at": now_stamp(),
@@ -1812,7 +2271,7 @@ def update_fitness_group(group_id, data):
     store = fitness_store()
     for group in store.get("exercise_groups", []):
         if group.get("id", "").lower() == group_id.lower():
-            for key in ("name", "type", "notes"):
+            for key in ("name", "type", "notes", "schedule_day", "schedule_time"):
                 if key in data:
                     group[key] = str(data.get(key) or "").strip()
             if not group.get("name"):
@@ -4283,6 +4742,7 @@ INDEX_HTML = r"""<!doctype html>
           <div class="tab-row" id="trackerTabs">
             <button class="active" data-tracker="summary">Summary</button>
             <button data-tracker="checkins">Check-In</button>
+            <button data-tracker="royal" data-companion-only>Royal Inspection</button>
             <button data-tracker="journal">Journal</button>
           </div>
           <div class="tracker-view active" data-tracker-view="summary">
@@ -4326,10 +4786,9 @@ INDEX_HTML = r"""<!doctype html>
               </div>
             </div>
           </div>
-          <div class="tracker-view" data-tracker-view="checkins">
-            <h2>Check-In</h2>
+          <div class="tracker-view" data-tracker-view="royal" data-companion-only>
+            <h2>Royal Inspection</h2>
             <div class="panel" style="margin-bottom:12px;">
-              <h2>Royal Inspection</h2>
               <div class="field-grid">
                 <div><label>Date</label><input id="royalDate" type="date"></div>
                 <div><label>Crown Mode</label><select id="royalCrownMode"><option>Princess</option><option>Tiny Tyrant</option><option>Steward</option><option>Plain Evie</option></select></div>
@@ -4368,6 +4827,9 @@ INDEX_HTML = r"""<!doctype html>
                 <button class="inline" onclick="createMemoryCommandFromRoyalInspection()">Create Memory Command From This</button>
               </div>
             </div>
+          </div>
+          <div class="tracker-view" data-tracker-view="checkins">
+            <h2>Check-In</h2>
             <div class="field-grid">
               <div>
                 <label>Date</label>
@@ -4450,6 +4912,7 @@ INDEX_HTML = r"""<!doctype html>
             <button class="active" data-fitness="summary">Summary</button>
             <button data-fitness="orders">Today's Orders</button>
             <button data-fitness="plan">Workout Plan</button>
+            <button data-fitness="exercises">Exercise Library</button>
             <button data-fitness="mobility">Mobility</button>
             <button data-fitness="cardio">Cardio</button>
             <button data-fitness="strength">Strength</button>
@@ -4471,22 +4934,11 @@ INDEX_HTML = r"""<!doctype html>
           <div class="field-grid">
             <div><label>Group</label><input id="fitnessGroupName" placeholder="Strength A"></div>
             <div><label>Type</label><input id="fitnessGroupType" placeholder="Strength, Cardio, Mobility"></div>
+            <div><label>Schedule day</label><input id="fitnessGroupScheduleDay" placeholder="Monday"></div>
+            <div><label>Schedule time</label><input id="fitnessGroupScheduleTime" type="time"></div>
             <div><label>Notes</label><input id="fitnessGroupNotes"></div>
           </div>
           <button class="inline primary" onclick="createFitnessGroup()">Add Group</button>
-          <div class="field-grid">
-            <div><label>Exercise</label><input id="fitnessExerciseName" placeholder="Bodyweight squat"></div>
-            <div><label>Format</label><select id="fitnessExerciseFormat"><option value="sets_reps">Sets/Reps</option><option value="duration_reps">Duration/Reps</option><option value="duration_distance">Duration/Distance</option></select></div>
-            <div><label>Media URL</label><input id="fitnessExerciseMedia"></div>
-          </div>
-          <label>Exercise details</label>
-          <textarea id="fitnessExerciseDetails"></textarea>
-          <div class="field-grid">
-            <div><label>Warning</label><input id="fitnessExerciseWarning"></div>
-            <div><label>Progression</label><input id="fitnessExerciseProgression"></div>
-            <div><label>Regression</label><input id="fitnessExerciseRegression"></div>
-          </div>
-          <button class="inline primary" onclick="createFitnessExercise()">Add Exercise</button>
           <h2 style="margin-top:14px;">Add Exercise to Group</h2>
           <div class="field-grid">
             <div><label>Group</label><select id="fitnessPlanGroupSelect"></select></div>
@@ -4500,6 +4952,47 @@ INDEX_HTML = r"""<!doctype html>
           <input id="fitnessPlanNotes">
           <button class="inline primary" onclick="addFitnessGroupItem()">Add to Group</button>
           <div id="fitnessPlan"></div>
+        </div>
+        <div class="panel full fitness-view" data-fitness-view="exercises">
+          <h2>Exercise Library</h2>
+          <div class="field-grid">
+            <div><label>Search</label><input id="fitnessExerciseSearch" oninput="renderFitnessExercises()" placeholder="name, tag, target, equipment"></div>
+            <div><label>Tag filter</label><select id="fitnessExerciseTagFilter" onchange="renderFitnessExercises()"><option value="">All tags</option></select></div>
+            <div><label>Add to group</label><select id="fitnessExerciseGroupSelect"></select></div>
+          </div>
+          <div id="fitnessExerciseLibrary"></div>
+          <h2 style="margin-top:14px;">Exercise Editor</h2>
+          <div class="field-grid">
+            <div><label>Exercise</label><input id="fitnessExerciseName" placeholder="Bodyweight squat"></div>
+            <div><label>Format</label><select id="fitnessExerciseFormat"><option value="sets_reps">Sets/Reps</option><option value="duration_reps">Duration/Reps</option><option value="duration_distance">Duration/Distance</option></select></div>
+            <div><label>Difficulty</label><select id="fitnessExerciseDifficulty"><option value="easy">easy</option><option value="moderate">moderate</option><option value="hard">hard</option></select></div>
+            <div><label>PT role</label><select id="fitnessExerciseRole"><option value="main">main</option><option value="daily_minimum">daily_minimum</option><option value="recovery">recovery</option><option value="optional">optional</option></select></div>
+            <div><label>Default sets</label><input id="fitnessExerciseDefaultSets" type="number" min="0" value="0"></div>
+            <div><label>Default reps</label><input id="fitnessExerciseDefaultReps" type="number" min="0" value="0"></div>
+            <div><label>Default seconds</label><input id="fitnessExerciseDefaultSeconds" type="number" min="0" value="0"></div>
+            <div><label>Media URL</label><input id="fitnessExerciseMedia"></div>
+          </div>
+          <label>Tags</label>
+          <input id="fitnessExerciseTags" placeholder="core, endurance, balance">
+          <label>Target areas</label>
+          <input id="fitnessExerciseTargets" placeholder="core, hips, posterior chain">
+          <label>Equipment</label>
+          <input id="fitnessExerciseEquipment" placeholder="chair, band">
+          <label>Full description</label>
+          <textarea id="fitnessExerciseDetails"></textarea>
+          <label>How to do it</label>
+          <textarea id="fitnessExerciseHowTo"></textarea>
+          <label>Contraindications</label>
+          <input id="fitnessExerciseContraindications">
+          <div class="field-grid">
+            <div><label>Warning</label><input id="fitnessExerciseWarning"></div>
+            <div><label>Progression</label><input id="fitnessExerciseProgression"></div>
+            <div><label>Regression</label><input id="fitnessExerciseRegression"></div>
+          </div>
+          <div class="row" style="margin-top:10px;">
+            <button class="inline primary" id="fitnessExerciseSaveButton" onclick="saveFitnessExercise()">Add Exercise</button>
+            <button class="inline" onclick="clearFitnessExerciseEditor()">Clear</button>
+          </div>
         </div>
         <div class="panel fitness-view" data-fitness-view="mobility">
           <h2>Mobility</h2>
@@ -4921,6 +5414,12 @@ INDEX_HTML = r"""<!doctype html>
         <button class="inline" onclick="closeNewCompanionDialog()">Cancel</button>
       </div>
     </dialog>
+    <dialog id="fitnessExerciseDialog">
+      <div id="fitnessExerciseDialogBody"></div>
+      <div class="row" style="margin-top:12px;">
+        <button class="inline" onclick="closeFitnessExerciseDialog()">Close</button>
+      </div>
+    </dialog>
   </main>
   <script>
     let state = null;
@@ -4936,6 +5435,7 @@ INDEX_HTML = r"""<!doctype html>
     let selectedFitnessTab = 'summary';
     let selectedCalendarMonth = new Date();
     let councilAnswers = {};
+    let editingFitnessExerciseId = null;
 
     const nativeFetch = window.fetch.bind(window);
     function activeProfileName() {
@@ -5850,6 +6350,9 @@ INDEX_HTML = r"""<!doctype html>
     }
 
     function renderTrackerTabs() {
+      if (selectedTrackerTab === 'royal' && !((state.access || {}).companions)) {
+        selectedTrackerTab = 'summary';
+      }
       document.querySelectorAll('#trackerTabs button').forEach(button => {
         button.classList.toggle('active', button.dataset.tracker === selectedTrackerTab);
       });
@@ -6545,6 +7048,7 @@ INDEX_HTML = r"""<!doctype html>
       </div>`;
       document.getElementById('fitnessOrders').innerHTML = (fitness.orders || []).map(order => `<div class="todo-row"><strong>${escapeHtml(order.title)}</strong> <span class="pill">${escapeHtml(order.status || 'open')}</span><p class="muted">${escapeHtml(order.details || '')}</p><button class="inline primary" onclick="updateFitnessOrder('${escapeJs(order.id)}','done')">Mark Done</button> <button class="inline" onclick="updateFitnessOrder('${escapeJs(order.id)}','snoozed')">Snooze</button> <button class="inline" onclick="rescheduleFitnessOrder('${escapeJs(order.id)}')">Reschedule</button> <button class="inline" onclick="skipFitnessOrder('${escapeJs(order.id)}')">Skip with Reason</button></div>`).join('') || emptyState('No fitness orders yet.', 'Orders and rebuild tasks will appear here.');
       renderFitnessPlan(fitness);
+      renderFitnessExercises();
       document.getElementById('fitnessProgress').innerHTML = renderSimpleList((fitness.progress_notes || []).slice().reverse(), item => `${item.date || ''} | ${item.note || item.notes || ''}`);
       document.getElementById('fitnessChallenges').innerHTML = (fitness.challenges || []).map(challenge => `<div class="todo-row"><strong>${escapeHtml(challenge.name)}</strong> <span class="pill">${escapeHtml(challenge.status)}</span><p class="muted">${escapeHtml(challenge.requirements || '')}</p><button class="inline primary" onclick="updateFitnessChallenge('${escapeJs(challenge.id)}','started')">Start Challenge</button> <button class="inline" onclick="updateFitnessChallenge('${escapeJs(challenge.id)}','completed')">Complete Challenge</button></div>`).join('') || emptyState('No challenges yet.', 'Fitness challenges will appear here when added.');
       document.getElementById('fitnessHistory').innerHTML = renderSimpleList((fitness.history || []).slice().reverse(), item => `${item.date || ''} | ${item.title || item.kind || ''} | ${item.status || ''}`);
@@ -6561,11 +7065,50 @@ INDEX_HTML = r"""<!doctype html>
           const prescription = [`${item.sets || 0} sets`, item.reps ? `${item.reps} reps` : '', item.duration_seconds ? `${item.duration_seconds}s` : '', item.distance || ''].filter(Boolean).join(' / ');
           return `<tr><td>${escapeHtml(exercise.name || item.exercise_id)}</td><td>${escapeHtml(exercise.format || '')}</td><td>${escapeHtml(prescription)}</td><td>${escapeHtml(item.notes || '')}</td><td><button class="inline" onclick="deleteFitnessGroupItem('${escapeJs(group.id)}','${escapeJs(item.id)}')">Remove</button></td></tr>`;
         }).join('');
-        return `<div class="panel" style="margin-top:10px;"><h3>${escapeHtml(group.name)} <span class="pill">${escapeHtml(group.type || '')}</span></h3><p class="muted">${escapeHtml(group.notes || '')}</p><button class="inline" onclick="editFitnessGroup('${escapeJs(group.id)}')">Edit Group</button> <button class="inline danger" onclick="deleteFitnessGroup('${escapeJs(group.id)}')">Delete Group</button><div class="scrollbox"><table><thead><tr><th>Exercise</th><th>Format</th><th>Prescription</th><th>Notes</th><th>Actions</th></tr></thead><tbody>${items || '<tr><td colspan="5" class="muted">No exercises in this group.</td></tr>'}</tbody></table></div></div>`;
+        const schedule = [group.schedule_day || '', group.schedule_time || ''].filter(Boolean).join(' ');
+        return `<div class="panel" style="margin-top:10px;"><h3>${escapeHtml(group.name)} <span class="pill">${escapeHtml(group.type || '')}</span>${schedule ? ` <span class="pill">${escapeHtml(schedule)}</span>` : ''}</h3><p class="muted">${escapeHtml(group.notes || '')}</p><button class="inline" onclick="editFitnessGroup('${escapeJs(group.id)}')">Edit Group</button> <button class="inline danger" onclick="deleteFitnessGroup('${escapeJs(group.id)}')">Delete Group</button><div class="scrollbox"><table><thead><tr><th>Exercise</th><th>Format</th><th>Prescription</th><th>Notes</th><th>Actions</th></tr></thead><tbody>${items || '<tr><td colspan="5" class="muted">No exercises in this group.</td></tr>'}</tbody></table></div></div>`;
       }).join('');
-      const exerciseRows = exercises.map(exercise => `<tr><td>${escapeHtml(exercise.name)}</td><td>${escapeHtml(exercise.format)}</td><td>${escapeHtml(exercise.details || '')}</td><td>${exercise.media_url ? `<a href="${escapeHtml(exercise.media_url)}" target="_blank">media</a>` : ''}</td><td><button class="inline" onclick="editFitnessExercise('${escapeJs(exercise.id)}')">Edit</button> <button class="inline danger" onclick="deleteFitnessExercise('${escapeJs(exercise.id)}')">Delete</button></td></tr>`).join('');
-      const legacyPlan = Object.entries(fitness.workout_plan || {}).map(([key, value]) => `<h3>${escapeHtml(key.replaceAll('_',' '))}</h3><ul>${[].concat(value || []).map(item => `<li>${escapeHtml(item)}</li>`).join('')}</ul>`).join('');
-      document.getElementById('fitnessPlan').innerHTML = `${groupRows}<h2 style="margin-top:14px;">Exercise Database</h2><div class="scrollbox"><table><thead><tr><th>Name</th><th>Format</th><th>Details</th><th>Media</th><th>Actions</th></tr></thead><tbody>${exerciseRows}</tbody></table></div><h2 style="margin-top:14px;">Legacy Weekly Structure</h2>${legacyPlan}<h3>Safety Rules</h3><ul>${(fitness.safety_rules || []).map(rule => `<li>${escapeHtml(rule)}</li>`).join('')}</ul>`;
+      const plan = Object.entries(fitness.workout_plan || {}).map(([key, value]) => `<h3>${escapeHtml(key.replaceAll('_',' '))}</h3><ul>${[].concat(value || []).map(item => `<li>${escapeHtml(item)}</li>`).join('')}</ul>`).join('');
+      document.getElementById('fitnessPlan').innerHTML = `${groupRows}<h2 style="margin-top:14px;">Weekly Structure</h2>${plan}<h3>Safety Rules</h3><ul>${(fitness.safety_rules || []).map(rule => `<li>${escapeHtml(rule)}</li>`).join('')}</ul>`;
+    }
+
+    function renderFitnessExercises() {
+      const fitness = state.fitness || {};
+      const exercises = fitness.exercise_library || [];
+      const groups = fitness.exercise_groups || [];
+      const groupSelect = document.getElementById('fitnessExerciseGroupSelect');
+      const tagFilter = document.getElementById('fitnessExerciseTagFilter');
+      const currentTag = tagFilter ? tagFilter.value : '';
+      if (groupSelect) {
+        groupSelect.innerHTML = groups.map(group => `<option value="${escapeHtml(group.id)}">${escapeHtml(group.name)}</option>`).join('');
+      }
+      const tags = Array.from(new Set(exercises.flatMap(exercise => exercise.tags || []).map(tag => String(tag).trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b));
+      if (tagFilter) {
+        tagFilter.innerHTML = '<option value="">All tags</option>' + tags.map(tag => `<option value="${escapeHtml(tag)}">${escapeHtml(tag)}</option>`).join('');
+        tagFilter.value = tags.includes(currentTag) ? currentTag : '';
+      }
+      const query = (document.getElementById('fitnessExerciseSearch')?.value || '').toLowerCase().trim();
+      const activeTag = (tagFilter?.value || '').toLowerCase();
+      const filtered = exercises.filter(exercise => {
+        const haystack = [
+          exercise.name,
+          exercise.details,
+          exercise.how_to,
+          exercise.difficulty,
+          exercise.pt_role,
+          ...(exercise.tags || []),
+          ...(exercise.target_areas || []),
+          ...(exercise.equipment || [])
+        ].join(' ').toLowerCase();
+        const tagMatch = !activeTag || (exercise.tags || []).map(tag => String(tag).toLowerCase()).includes(activeTag);
+        return tagMatch && (!query || haystack.includes(query));
+      });
+      document.getElementById('fitnessExerciseLibrary').innerHTML = filtered.length
+        ? `<div class="scrollbox"><table><thead><tr><th>Exercise</th><th>Tags</th><th>Targets</th><th>Default</th><th>Actions</th></tr></thead><tbody>${filtered.map(exercise => {
+            const defaults = [`${exercise.default_sets || 0} sets`, exercise.default_reps ? `${exercise.default_reps} reps` : '', exercise.default_duration_seconds ? `${exercise.default_duration_seconds}s` : ''].filter(Boolean).join(' / ');
+            return `<tr><td><strong>${escapeHtml(exercise.name)}</strong><br><span class="muted">${escapeHtml(exercise.details || '')}</span></td><td>${(exercise.tags || []).map(tag => `<span class="pill">${escapeHtml(tag)}</span>`).join('')}</td><td>${escapeHtml((exercise.target_areas || []).join(', '))}</td><td>${escapeHtml(defaults || exercise.format || '')}</td><td><button class="inline" onclick="openFitnessExercise('${escapeJs(exercise.id)}')">Details</button> <button class="inline" onclick="editFitnessExercise('${escapeJs(exercise.id)}')">Edit</button> <button class="inline" onclick="addFitnessExerciseToSelectedGroup('${escapeJs(exercise.id)}')">Add to Group</button> <button class="inline danger" onclick="deleteFitnessExercise('${escapeJs(exercise.id)}')">Delete</button></td></tr>`;
+          }).join('')}</tbody></table></div>`
+        : emptyState('No exercises match.', 'Adjust the search or tag filter.');
     }
 
     function renderFitnessTabs() {
@@ -6593,11 +7136,13 @@ INDEX_HTML = r"""<!doctype html>
         body: JSON.stringify({
           name: document.getElementById('fitnessGroupName').value,
           type: document.getElementById('fitnessGroupType').value,
+          schedule_day: document.getElementById('fitnessGroupScheduleDay').value,
+          schedule_time: document.getElementById('fitnessGroupScheduleTime').value,
           notes: document.getElementById('fitnessGroupNotes').value
         })
       });
       await handleResponse(res);
-      for (const id of ['fitnessGroupName', 'fitnessGroupType', 'fitnessGroupNotes']) document.getElementById(id).value = '';
+      for (const id of ['fitnessGroupName', 'fitnessGroupType', 'fitnessGroupScheduleDay', 'fitnessGroupScheduleTime', 'fitnessGroupNotes']) document.getElementById(id).value = '';
       await loadState();
     }
 
@@ -6608,12 +7153,16 @@ INDEX_HTML = r"""<!doctype html>
       if (name === null) return;
       const type = prompt('Group type', group.type || '');
       if (type === null) return;
+      const schedule_day = prompt('Schedule day', group.schedule_day || '');
+      if (schedule_day === null) return;
+      const schedule_time = prompt('Schedule time', group.schedule_time || '');
+      if (schedule_time === null) return;
       const notes = prompt('Group notes', group.notes || '');
       if (notes === null) return;
       const res = await fetch(`/api/fitness/groups/${encodeURIComponent(groupId)}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, type, notes })
+        body: JSON.stringify({ name, type, schedule_day, schedule_time, notes })
       });
       await handleResponse(res);
       await loadState();
@@ -6626,39 +7175,90 @@ INDEX_HTML = r"""<!doctype html>
       await loadState();
     }
 
-    async function createFitnessExercise() {
-      const res = await fetch('/api/fitness/exercises', {
-        method: 'POST',
+    function fitnessExerciseFormBody() {
+      return {
+        name: document.getElementById('fitnessExerciseName').value,
+        format: document.getElementById('fitnessExerciseFormat').value,
+        media_url: document.getElementById('fitnessExerciseMedia').value,
+        details: document.getElementById('fitnessExerciseDetails').value,
+        tags: document.getElementById('fitnessExerciseTags').value,
+        target_areas: document.getElementById('fitnessExerciseTargets').value,
+        equipment: document.getElementById('fitnessExerciseEquipment').value,
+        difficulty: document.getElementById('fitnessExerciseDifficulty').value,
+        pt_role: document.getElementById('fitnessExerciseRole').value,
+        contraindications: document.getElementById('fitnessExerciseContraindications').value,
+        how_to: document.getElementById('fitnessExerciseHowTo').value,
+        default_sets: document.getElementById('fitnessExerciseDefaultSets').value,
+        default_reps: document.getElementById('fitnessExerciseDefaultReps').value,
+        default_duration_seconds: document.getElementById('fitnessExerciseDefaultSeconds').value,
+        warning: document.getElementById('fitnessExerciseWarning').value,
+        progression: document.getElementById('fitnessExerciseProgression').value,
+        regression: document.getElementById('fitnessExerciseRegression').value
+      };
+    }
+
+    async function saveFitnessExercise() {
+      const path = editingFitnessExerciseId ? `/api/fitness/exercises/${encodeURIComponent(editingFitnessExerciseId)}` : '/api/fitness/exercises';
+      const res = await fetch(path, {
+        method: editingFitnessExerciseId ? 'PATCH' : 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: document.getElementById('fitnessExerciseName').value,
-          format: document.getElementById('fitnessExerciseFormat').value,
-          media_url: document.getElementById('fitnessExerciseMedia').value,
-          details: document.getElementById('fitnessExerciseDetails').value,
-          warning: document.getElementById('fitnessExerciseWarning').value,
-          progression: document.getElementById('fitnessExerciseProgression').value,
-          regression: document.getElementById('fitnessExerciseRegression').value
-        })
+        body: JSON.stringify(fitnessExerciseFormBody())
       });
       await handleResponse(res);
-      for (const id of ['fitnessExerciseName', 'fitnessExerciseMedia', 'fitnessExerciseDetails', 'fitnessExerciseWarning', 'fitnessExerciseProgression', 'fitnessExerciseRegression']) document.getElementById(id).value = '';
+      clearFitnessExerciseEditor();
       await loadState();
+    }
+
+    async function createFitnessExercise() {
+      await saveFitnessExercise();
+    }
+
+    function clearFitnessExerciseEditor() {
+      editingFitnessExerciseId = null;
+      for (const id of ['fitnessExerciseName', 'fitnessExerciseMedia', 'fitnessExerciseDetails', 'fitnessExerciseTags', 'fitnessExerciseTargets', 'fitnessExerciseEquipment', 'fitnessExerciseContraindications', 'fitnessExerciseHowTo', 'fitnessExerciseWarning', 'fitnessExerciseProgression', 'fitnessExerciseRegression']) {
+        const element = document.getElementById(id);
+        if (element) element.value = '';
+      }
+      for (const [id, value] of Object.entries({ fitnessExerciseDefaultSets: '0', fitnessExerciseDefaultReps: '0', fitnessExerciseDefaultSeconds: '0' })) {
+        const element = document.getElementById(id);
+        if (element) element.value = value;
+      }
+      document.getElementById('fitnessExerciseFormat').value = 'sets_reps';
+      document.getElementById('fitnessExerciseDifficulty').value = 'easy';
+      document.getElementById('fitnessExerciseRole').value = 'main';
+      document.getElementById('fitnessExerciseSaveButton').textContent = 'Add Exercise';
     }
 
     async function editFitnessExercise(exerciseId) {
       const exercise = ((state.fitness || {}).exercise_library || []).find(item => item.id === exerciseId);
       if (!exercise) return;
-      const name = prompt('Exercise name', exercise.name || '');
-      if (name === null) return;
-      const details = prompt('Exercise details', exercise.details || '');
-      if (details === null) return;
-      const res = await fetch(`/api/fitness/exercises/${encodeURIComponent(exerciseId)}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(Object.assign({}, exercise, { name, details }))
-      });
-      await handleResponse(res);
-      await loadState();
+      editingFitnessExerciseId = exerciseId;
+      const values = {
+        fitnessExerciseName: exercise.name || '',
+        fitnessExerciseFormat: exercise.format || 'sets_reps',
+        fitnessExerciseMedia: exercise.media_url || '',
+        fitnessExerciseDetails: exercise.details || '',
+        fitnessExerciseTags: (exercise.tags || []).join(', '),
+        fitnessExerciseTargets: (exercise.target_areas || []).join(', '),
+        fitnessExerciseEquipment: (exercise.equipment || []).join(', '),
+        fitnessExerciseDifficulty: exercise.difficulty || 'easy',
+        fitnessExerciseRole: exercise.pt_role || 'main',
+        fitnessExerciseContraindications: exercise.contraindications || '',
+        fitnessExerciseHowTo: exercise.how_to || '',
+        fitnessExerciseDefaultSets: exercise.default_sets || 0,
+        fitnessExerciseDefaultReps: exercise.default_reps || 0,
+        fitnessExerciseDefaultSeconds: exercise.default_duration_seconds || 0,
+        fitnessExerciseWarning: exercise.warning || '',
+        fitnessExerciseProgression: exercise.progression || '',
+        fitnessExerciseRegression: exercise.regression || ''
+      };
+      for (const [id, value] of Object.entries(values)) {
+        const element = document.getElementById(id);
+        if (element) element.value = value;
+      }
+      document.getElementById('fitnessExerciseSaveButton').textContent = 'Save Exercise';
+      selectedFitnessTab = 'exercises';
+      renderFitnessTabs();
     }
 
     async function deleteFitnessExercise(exerciseId) {
@@ -6685,6 +7285,50 @@ INDEX_HTML = r"""<!doctype html>
       });
       await handleResponse(res);
       await loadState();
+    }
+
+    async function addFitnessExerciseToSelectedGroup(exerciseId) {
+      const groupId = document.getElementById('fitnessExerciseGroupSelect').value;
+      if (!groupId) return setStatus('Choose a workout group.');
+      const exercise = ((state.fitness || {}).exercise_library || []).find(item => item.id === exerciseId);
+      if (!exercise) return;
+      const res = await fetch(`/api/fitness/groups/${encodeURIComponent(groupId)}/items`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          exercise_id: exerciseId,
+          sets: exercise.default_sets || 0,
+          reps: exercise.default_reps || 0,
+          duration_seconds: exercise.default_duration_seconds || 0,
+          distance: '',
+          notes: exercise.pt_role || ''
+        })
+      });
+      await handleResponse(res);
+      await loadState();
+    }
+
+    function openFitnessExercise(exerciseId) {
+      const exercise = ((state.fitness || {}).exercise_library || []).find(item => item.id === exerciseId);
+      if (!exercise) return;
+      document.getElementById('fitnessExerciseDialogBody').innerHTML = `<h2>${escapeHtml(exercise.name || '')}</h2>
+        <p>${escapeHtml(exercise.details || '')}</p>
+        <div>${(exercise.tags || []).map(tag => `<span class="pill">${escapeHtml(tag)}</span>`).join('')}</div>
+        <h3>How To</h3><p class="muted">${escapeHtml(exercise.how_to || 'No instructions saved.')}</p>
+        <h3>Targets</h3><p class="muted">${escapeHtml((exercise.target_areas || []).join(', ') || 'Not set.')}</p>
+        <h3>Equipment</h3><p class="muted">${escapeHtml((exercise.equipment || []).join(', ') || 'None listed.')}</p>
+        <h3>Safety</h3><p class="muted">${escapeHtml(exercise.contraindications || exercise.warning || 'No safety notes saved.')}</p>
+        <h3>Progression / Regression</h3><p class="muted">${escapeHtml(exercise.progression || 'No progression saved.')} / ${escapeHtml(exercise.regression || 'No regression saved.')}</p>
+        ${exercise.media_url ? `<p><a class="inline" href="${escapeHtml(exercise.media_url)}" target="_blank">Open Media</a></p>` : ''}`;
+      const dialog = document.getElementById('fitnessExerciseDialog');
+      if (dialog.showModal) dialog.showModal();
+      else dialog.setAttribute('open', 'open');
+    }
+
+    function closeFitnessExerciseDialog() {
+      const dialog = document.getElementById('fitnessExerciseDialog');
+      if (dialog.open && dialog.close) dialog.close();
+      else dialog.removeAttribute('open');
     }
 
     async function deleteFitnessGroupItem(groupId, itemId) {
@@ -7438,7 +8082,10 @@ class CompanionWebHandler(BaseHTTPRequestHandler):
                 elif path == "/api/checkins":
                     if not self.require_category_access("trackers"):
                         return
-                    checkin = create_checkin(self.read_json_body())
+                    payload = self.read_json_body()
+                    if is_royal_checkin_payload(payload) and not self.require_companion_access():
+                        return
+                    checkin = create_checkin(payload)
                     self.send_json({"message": f"Saved {checkin['id']}.", "checkin": checkin})
                 elif path == "/api/journal":
                     if not self.require_category_access("trackers"):

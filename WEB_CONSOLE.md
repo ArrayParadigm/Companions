@@ -75,12 +75,18 @@ http://127.0.0.1:8787
 - Proof Vault stores proof metadata and uploaded proof files under `proof_vault/`, with download links for uploaded files.
 - Daily Check-ins read the existing emotional journal, productivity tracker, and
   fitness tracker JSON files, with summary, check-in, What Mattered Today,
-  Royal Inspection, Daily Minimums, and journal tabs.
+  Array-only Royal Inspection, Daily Minimums, and journal tabs. Royal
+  Inspection saves require Array access server-side.
 - The Journal tab can add new journal entries.
 - Journal entries use a clean blank entry box and can be reopened from the previous-entry list.
 - Fitness is a main navigation category with the persisted Recruit Rebuild
-  Command Center: Summary, Today's Orders, Workout Plan, Mobility, Cardio,
-  Strength, Progress, Challenges, Body Metrics, and History.
+  Command Center: Summary, Today's Orders, Workout Plan, Exercise Library,
+  Mobility, Cardio, Strength, Progress, Challenges, Body Metrics, and History.
+  Workout Plan shows the scheduled PT regimen groups and prescriptions.
+  Exercise Library is a searchable/tag-filtered JSON-backed exercise database
+  with detail popup, add/edit/delete, and add-to-group controls. The `0.1.20.0`
+  fitness seed migrates the Array fitness JSON to the current Recruit Rebuild
+  PT plan when Fitness data is loaded.
 - Spiritual owns daily reading, extra reading, persistent Bible chapter progress, and prayer categories for gratitude, requests, repentance, service, and closeness.
 - Projects has Home Maintenance, Vehicle Maintenance, and Tech Projects tabs
   plus category, status, and sort controls; Chores is a project category, not a

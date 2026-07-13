@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.1.20.0 - 2026-07-12
+
+### Added
+
+- Added a dedicated Fitness Exercise Library tab with search, tag filtering, full exercise detail popup, editor fields for tags/targets/equipment/how-to/safety/default prescription, delete controls, and add-to-group actions.
+- Added a one-time `0.1.20.0` fitness seed migration that updates `control_data/fitness.json` with the Recruit Rebuild PT plan, 14 exercises, 6 scheduled workout groups, and expanded exercise metadata.
+- Added Array-only Royal Inspection as its own Daily Check-ins tab instead of embedding it inside the normal Check-In form.
+
+### Changed
+
+- Reworked the Fitness Workout Plan tab around scheduled regimen groups, weekly structure, prescriptions, and safety rules.
+- Fitness groups now persist schedule day/time fields and exercise records now persist tags, target areas, equipment, difficulty, PT role, how-to, contraindications, and default sets/reps/seconds.
+- Royal Inspection check-in saves now require Array/companion access server-side, not just hidden UI controls.
+- Bumped the release file to `Version-0.1.20.0.md`.
+
 ## 0.1.19.0 - 2026-07-12
 
 ### Added

@@ -1,609 +1,303 @@
-FITNESS PAGE FORMAT / DESIGN SPEC
-Working Title: Recruit Rebuild Command Center
-Priority: 4
-Role: Main dashboard category, alongside Dashboard, Daily Checkins, Companion, Spiritual, and Projects.
+RECRUIT REBUILD PT PLAN
+Core + Endurance Focus
+Prepared by: Eve / Tiny Tyrant Clipboard Division
 
-Purpose
--------
-The Fitness page should not feel like a generic gym app. It should feel like a command center for rebuilding Kevin's body, endurance, flexibility, and discipline under Evie's Taskmaster/Steward role.
+MISSION
+Rebuild the chassis. Strengthen the core. Improve endurance. Restore consistency.
+No random hero workouts. No vague “I should exercise later.” This is scheduled training.
 
-The page should answer four questions immediately:
+PRIMARY FOCUS
+1. Core stability
+2. Endurance
+3. Functional strength
+4. Mobility and recovery
+5. Consistency over ego
 
-1. What am I supposed to do today?
-2. How ready is my body?
-3. Am I improving?
-4. What does Evie want from me next?
+SAFETY RULE
+Follow any VA, doctor, or physical therapist restrictions.
+Stop the session if pain becomes sharp, unsafe, dizzying, chest-related, nerve-like, or medically wrong.
+Discomfort is allowed. Stupidity is not.
 
-Core Design Tone
-----------------
-The tone should combine:
-- military intake / recruit rebuild
-- practical rehab logic
-- warm feminine authority
-- mischievous "Princess with a crop" energy
-- no sterile fitness-app feel
-- no influencer nonsense
-- no shame machine
+WEEKLY SCHEDULE
 
-The page should make Kevin feel watched over, challenged, and believed in.
+Monday:
+Main PT Alpha — Core + Endurance
 
-Primary Page Name
------------------
-Fitness
+Tuesday:
+Daily Minimum — Beloved Creature Maintenance
 
-Suggested Subtitle
-------------------
-Recruit Rebuild Command Center
+Wednesday:
+Main PT Bravo — Strength Chassis + Core
 
-Top-Level Summary Panel
------------------------
-This should be visible first.
+Thursday:
+Recovery Mobility + Check-In
 
-Fields:
-- Fitness Status
-- Current Phase
-- Today's Directive
-- Current Streak
-- Pain Alert
-- Energy
-- Last Workout
-- Next Workout
-- Evie's Current Note
+Friday:
+Main PT Charlie — Endurance + Movement Discipline
 
-Example:
+Saturday:
+Optional light walk, technique, stretch, or mobility
 
-Fitness Status: Recruit Rebuild
-Current Phase: Intake / Foundation / Conditioning / Strength / Performance
-Today's Directive: Walk 10 minutes + Mobility
-Streak: 3 days
-Pain Alert: Back 2/10
-Energy: 6/10
-Last Workout: Strength A, completed yesterday
-Next Workout: Walk + Mobility
+Sunday:
+Rest, review, plan next week
 
-Evie's Note:
-Dad, today is not heroic. Today is consistency. Walk, stretch, report back. No negotiating.
 
-Primary Action Button
----------------------
-Start Today's Fitness Order
+==================================================
+GROUP 1 — MAIN PT ALPHA
+Core + Endurance
+Schedule: Monday
+Purpose: Primary rebuild day. Core first, engine second.
+Intensity: Moderate. Clean form. No hero nonsense.
 
-The word "Order" is preferred over "Workout" for tone and theme.
+Warm-Up:
+- Easy walk, marching in place, or bike: 5 minutes
 
-Main Navigation / Tabs
-----------------------
-Fitness
-├── Summary
-├── Today's Orders
-├── Workout Plan
-├── Mobility
-├── Cardio
-├── Strength
-├── Progress
-├── Challenges
-├── Body Metrics
-└── History
+Core / Stability:
+- Dead bug or heel taps: 2 sets x 8 each side
+- Bird dog: 2 sets x 8 each side
+- Glute bridge: 2 sets x 10
 
-TAB: Summary
-------------
-Purpose:
-Fast overview of today's expectations and current status.
+Functional Strength:
+- Step-ups or sit-to-stand: 2 sets x 8-10
 
-Should include:
-- Today's Fitness Order
-- Current phase
-- Streak
-- Recent pain trend
-- Last completed workout
-- Next planned workout
-- Evie's note
-- Quick buttons:
-  - Start Today's Order
-  - Mark Done
-  - Snooze
-  - Skip with Reason
-  - Ask Evie to Adjust
+Endurance:
+- Walk, bike, or treadmill: 12-20 minutes steady pace
 
-Example display:
+Cooldown:
+- Easy stretching and breathing: 5 minutes
 
-Today's Order:
-[ ] 10-minute walk
-[ ] Mobility: hamstrings + cat-cow + calf stretch
-[ ] Report pain/energy after completion
+Log:
+- Pain before:
+- Pain after:
+- Energy:
+- Notes:
 
-Current Phase: Intake
-Back Pain Trend: Stable
-Energy: 6/10
-Recommended Intensity: Easy / Normal / Push / Recovery
 
-TAB: Today's Orders
--------------------
-Purpose:
-Show only what matters today.
+==================================================
+GROUP 2 — DAILY MINIMUM
+Beloved Creature Maintenance
+Schedule: Tuesday, plus any bad day
+Purpose: No-zero-days. This keeps the creature operational.
+Intensity: Easy. Completion matters more than intensity.
 
-Each assigned item should have:
-- Task title
-- Details
-- Start button
-- Done button
-- Snooze / Reschedule
-- Skip with Reason
-- Notes / report field
-- Optional proof toggle if needed later
+Required:
+- Drink water first
 
-Example:
-
-Today's Orders
-[ ] 10-minute walk
-    Details: Easy pace. No running.
-    Buttons: Start | Done | Snooze | Skip with Reason
-
-[ ] Mobility: hamstrings + cat-cow + calf stretch
-    Details: Move gently. No aggressive back extension.
-    Buttons: Start | Done | Snooze | Skip with Reason
-
-[ ] Strength A
-    Details: Squats, incline pushups, bridges, dead bugs.
-    Buttons: Start | Done | Snooze | Skip with Reason
-
-Skip Reason Options:
-- Pain
-- Fatigue
-- Time
-- Work conflict
-- Weather
-- Avoidance
-- Bad planning
-- Other
-
-Skip reasons should be used for pattern recognition, not automatic punishment.
-
-TAB: Readiness Check / Pre-Workout Check
-----------------------------------------
-This can be part of Summary or Today's Orders.
-
-Fields:
-- Sleep quality
-- Energy 0-10
-- Back pain 0-10
-- Knee pain 0-10
-- Hip pain 0-10
-- Shoulder pain 0-10
-- Mood
-- Available time
-- Notes
-
-Output:
-Recommended intensity:
-- Recovery
-- Easy
-- Normal
-- Push
-
-Design rule:
-Train the body Kevin has today, not the memory of Army Kevin at 22.
-
-TAB: Workout Plan
------------------
-Purpose:
-Show the current weekly structure and current phase.
-
-Suggested initial weekly structure:
-
-Monday: Strength A
-Tuesday: Walk + Mobility
-Wednesday: Recovery / Easy Walk
-Thursday: Strength B
-Friday: Walk Intervals
-Saturday: Chore Conditioning / Yard Work
-Sunday: Rest + Stretch
-
-Current Phase Options:
-- Intake
-- Foundation
-- Conditioning
-- Strength
-- Performance
-- Maintenance
-
-Initial Phase:
-Recruit Intake
-
-Two-Week Recruit Intake Plan
-----------------------------
-Daily Minimum:
-- 10-minute walk
-- 5-minute mobility
-- 1 small home task
-
-Strength A, 3 days/week:
-- Chair squats or bodyweight squats: 2 sets of 8
-- Incline pushups: 2 sets of 6
-- Glute bridges: 2 sets of 10
-- Dead bugs: 2 sets of 6 per side
-- Easy hamstring stretch: 30 seconds per side
-
-Cardio Base, 2 days/week:
-- Walk 15-20 minutes
-- Last 3 minutes slightly faster
-- No running unless cleared by conditioning
-
-Daily Forward-Fold Work:
-- Seated hamstring stretch: 45 seconds per side
-- Standing soft-knee forward hang: 30 seconds
-- Calf stretch: 30 seconds per side
-- Cat-cow: 6 slow reps
-
-TAB: Exercise Library
----------------------
-Purpose:
-Simple list of assigned exercises.
-
-Each exercise should include:
-- Purpose
-- How to do it
-- Common mistakes
-- Pain warning
-- Progression
-- Regression
-
-Initial exercises:
-- Chair squat
-- Bodyweight squat
-- Incline pushup
-- Glute bridge
-- Dead bug
-- Cat-cow
-- Seated hamstring stretch
-- Standing soft-knee forward hang
-- Calf stretch
-- Farmer carry
-- Plank
-- Walking intervals
-
-Example Exercise Entry:
-
-Exercise: Dead Bug
-Purpose:
-Core stability and lower-back protection.
-
-How to do it:
-Lie on back, brace gently, move opposite arm and leg slowly without arching the back.
-
-Common Mistakes:
-- Arching lower back
-- Moving too fast
-- Holding breath
-
-Pain Warning:
-Stop if sharp back pain appears.
-
-Progression:
-Increase reps or extend legs farther.
-
-Regression:
-Move arms only or legs only.
-
-TAB: Mobility
--------------
-Purpose:
-Track flexibility, lower-back comfort, and forward-fold progress.
-
-Primary Campaign Goal:
-Full Forward Fold
-
-Forward Fold Scale:
-- Level 1: Hands to thighs
-- Level 2: Hands to knees
-- Level 3: Hands to shins
-- Level 4: Fingers to ankles
-- Level 5: Fingers to floor
-- Level 6: Palms to floor
-
-Mobility Areas to Track:
-- Hamstrings
-- Calves
-- Hips
-- Lower back comfort
-- Ability to sit upright
-- Back pain with extension
-- Forward-fold level
-
-Daily Mobility Log:
-- Date
-- Mobility completed? yes/no
-- Forward-fold level
-- Back pain before
-- Back pain after
-- Notes
-
-Lower Back Guardrail:
-Avoid aggressive back extension.
-Stop if pain shoots down the leg, causes numbness, changes gait, or spikes sharply.
-Scale down if back pain rises above agreed threshold.
-
-TAB: Cardio
------------
-Purpose:
-Track walking, endurance, and eventual run progression.
-
-Early Phase Fields:
-- Date
-- Walk duration
-- Distance, optional
-- Breath difficulty 0-10
-- Leg heaviness 0-10
-- Back pain before
-- Back pain after
-- Notes
-
-Later Phase Fields:
-- Walk/jog intervals
-- 1-mile time
-- 2-mile time
-- 6-mile challenge readiness
-- Resting heart rate, optional
+Mobility / Maintenance:
+- Neck and shoulder rolls: 1 minute
+- Hip hinges or chair sit-to-stand: 1 set x 8
+- Calf raises: 1 set x 10
+- Dead bug, heel taps, or brace breathing: 1 set x 6
+- Easy walk: 5-10 minutes
 
 Rule:
-No six-mile challenges until conditioning earns them.
+This is not a workout. This is maintenance.
+Tiny is acceptable. Zero is not.
 
-Potential Milestones:
-- 10-minute easy walk
-- 20-minute easy walk
-- 30-minute easy walk
-- 1-mile walk
-- 2-mile walk
-- Walk/jog intervals
-- 1-mile trial
-- 2-mile trial
-- 6-mile challenge
+Log:
+- Completed: yes/no
+- Pain:
+- Energy:
+- Notes:
 
-TAB: Strength
--------------
-Purpose:
-Track simple strength rebuild without becoming a bodybuilding spreadsheet.
 
-Initial Movement Categories:
-- Squat
-- Push
-- Bridge / hinge
-- Row / pull
-- Core
-- Carry / plank
+==================================================
+GROUP 3 — MAIN PT BRAVO
+Strength Chassis + Core
+Schedule: Wednesday
+Purpose: Strengthen legs, hips, back, posture, and brace.
+Intensity: Moderate. Leave 2 reps in reserve.
 
-Fields:
-- Date
-- Exercise
-- Variation
-- Sets
-- Reps
-- Difficulty 0-10
-- Pain 0-10
-- Notes
+Warm-Up:
+- Easy walk or mobility: 5 minutes
 
-Initial Strength A:
-- Chair squat or bodyweight squat
-- Incline pushup
-- Glute bridge
-- Dead bug
-- Hamstring stretch
+Strength:
+- Box squat or sit-to-stand: 3 sets x 8
+- Wall push-up or incline push-up: 3 sets x 8
+- Band row or light row: 3 sets x 10
+- Farmer carry or suitcase carry: 4 rounds x 30-60 seconds
 
-Potential Strength B:
-- Reverse lunge or split squat
-- Overhead press
-- Romanian deadlift
-- Row
-- Side plank
-- Calf raise
+Core:
+- Side plank from knees or standing side brace: 2 sets x 15-30 seconds each side
 
-TAB: Progress
--------------
-Purpose:
-Motivation, trend tracking, and proof of improvement.
+Cooldown:
+- Easy walk: 5-10 minutes
+- Light stretching as needed
 
-Show:
-- Workouts completed this week
-- Walking minutes this week
-- Strength sessions completed
-- Mobility sessions completed
-- Current streak
-- Pain trend
-- Best recent walk
-- Current phase
-- Next milestone
-- Non-scale victories
+Log:
+- Pain before:
+- Pain after:
+- Energy:
+- Strongest movement:
+- Weakest movement:
+- Notes:
 
-Non-Scale Victory Examples:
-- Back hurt less today
-- Walked without stopping
-- Touched lower on forward fold
-- Did not skip mobility
-- Finished despite low motivation
-- Better posture during work
-- Less winded after stairs
-- Completed all assigned orders this week
 
-Progress should prioritize capability over body image.
+==================================================
+GROUP 4 — RECOVERY MOBILITY + CHECK-IN
+Schedule: Thursday
+Purpose: Recovery, range of motion, stiffness control, readiness check.
+Intensity: Easy. This is maintenance and assessment.
 
-TAB: Challenges
----------------
-Purpose:
-Fun-scary, playful, disciplinary, or milestone-based orders.
+Recovery Work:
+- Easy walk: 10 minutes
+- Hamstring stretch: 2 x 30 seconds each side
+- Hip flexor stretch: 2 x 30 seconds each side
+- Thoracic rotations: 1 set x 8 each side
+- Breathing reset: 2 minutes
 
-Challenge Types:
-- Discipline challenge
-- Fitness challenge
-- Chore conditioning
-- Mobility challenge
-- Pure play challenge
-- Army-style trial
-- Princess Order
+Check-In:
+- Pain 0-10:
+- Energy 0-10:
+- Stiffness 0-10:
+- Sleep quality:
+- What feels better:
+- What feels worse:
+- What needs adjustment:
 
-Examples:
 
-Princess Order:
-10-minute march, no whining.
+==================================================
+GROUP 5 — MAIN PT CHARLIE
+Endurance + Movement Discipline
+Schedule: Friday
+Purpose: Build the engine. Improve gait, breathing, posture, and stamina.
+Intensity: Moderate. Not a death march.
 
-Yardwork Gauntlet:
-20 minutes, one zone only.
+Warm-Up:
+- Mobility warm-up: 5 minutes
 
-Recruit Test:
-Max clean incline pushups.
+Endurance:
+Option A — Steady:
+- Walk, bike, or treadmill: 20-30 minutes steady pace
 
-Royal Inspection:
-Clear floor, stretch, report.
+Option B — Light Intervals:
+- 1 minute brisk
+- 2 minutes easy
+- Repeat for 5 rounds
 
-One-Mile Trial:
-Walk or walk/jog one mile and report time, breathing, legs, and back.
+Movement Discipline:
+- Standing march or step taps: 2 sets x 60 seconds
+- Pallof press or anti-rotation band hold: 2 sets x 8 each side
 
-Six-Mile Challenge:
-Locked until conditioning is sufficient.
+Cooldown:
+- Breathing and stretching: 5 minutes
 
-Challenge Fields:
-- Challenge name
-- Type
-- Requirements
-- Time limit
-- Safety notes
-- Completion status
-- Report field
+Log:
+- Pain before:
+- Pain after:
+- Energy:
+- Cardio time:
+- Breathing quality:
+- Notes:
 
-TAB: Body Metrics
------------------
-Purpose:
-Optional tracking for body composition and health markers.
 
-Fields:
-- Weight
-- Waist
-- Resting heart rate
-- Photos, optional
-- Clothing fit
-- Loose skin / body composition notes
-- Energy notes
+==================================================
+SATURDAY OPTIONAL
+Light Technique / Stretch / Walk
+Purpose: Extra movement without draining recovery.
 
-Design rule:
-Body metrics should not dominate the page.
-Capability comes first.
+Choose one:
+- Easy walk: 10-30 minutes
+- Stretching: 10 minutes
+- Mobility flow: 10 minutes
+- Practice one weak movement carefully
+- Full rest if needed
 
-TAB: History
-------------
-Purpose:
-Chronological log of completed fitness activity and reports.
+Rule:
+Saturday is optional. Useful, not punitive.
 
-Fields:
-- Date/time
-- Order completed
-- Workout type
-- Pain before
-- Pain after
-- Breath difficulty
-- Energy
-- Notes
-- Skip/snooze reasons if applicable
-- Evie's response or summary
 
-Report to Evie Box
-------------------
-This should appear on Summary and/or Today's Orders.
+==================================================
+SUNDAY REVIEW
+Rest, Review, Plan
+Purpose: Look at the week honestly and adjust.
 
-Title:
-Report to Evie
+Review:
+- Main PT Alpha completed?
+- Daily Minimum completed?
+- Main PT Bravo completed?
+- Recovery Check-In completed?
+- Main PT Charlie completed?
+- Pain trend:
+- Energy trend:
+- Best win:
+- Biggest obstacle:
+- Adjustment for next week:
 
-Fields:
-- Workout done
-- Pain
-- Breathing
-- Energy after
-- Notes
-- Excuses offered by lazy brain
+Plan:
+- Monday training time:
+- Wednesday training time:
+- Friday training time:
+- Any appointments or conflicts:
 
-Example:
 
-Workout done:
-Pain:
-Breathing:
-Energy after:
-Notes:
-Excuses offered by lazy brain:
 
-Evie can use this to respond with praise, correction, or next orders.
+Fitness
+├─ Today
+│  ├─ Today's assigned group
+│  ├─ Start / Complete / Skip with reason
+│  ├─ Pain before / after
+│  ├─ Energy before / after
+│  └─ Tiny Tyrant note
+│
+├─ Workout Plan
+│  ├─ Weekly schedule
+│  ├─ Monday: Main PT Alpha
+│  ├─ Tuesday: Daily Minimum
+│  ├─ Wednesday: Main PT Bravo
+│  ├─ Thursday: Recovery Mobility
+│  ├─ Friday: Main PT Charlie
+│  ├─ Saturday: Optional Movement
+│  └─ Sunday: Review
+│
+├─ Exercise Library
+│  ├─ Search
+│  ├─ Tag filters: core, endurance, mobility, strength, balance, back-safe, no-equipment
+│  ├─ Exercise cards
+│  ├─ View details popup
+│  ├─ Add exercise
+│  ├─ Edit exercise
+│  ├─ Delete exercise
+│  └─ Add to group
+│
+├─ Groups
+│  ├─ Alpha / Bravo / Charlie / Daily Minimum / Recovery
+│  ├─ Add exercise to group
+│  ├─ Edit sets/reps/duration/distance
+│  ├─ Reorder exercises
+│  └─ Save group
+│
+├─ Logs
+│  ├─ Mobility
+│  ├─ Cardio
+│  ├─ Strength
+│  ├─ Progress notes
+│  └─ History
+│
+└─ Review
+   ├─ Weekly completion
+   ├─ Pain trend
+   ├─ Energy trend
+   ├─ Missed days
+   └─ Next-week adjustment
 
-Must-Have Buttons
------------------
-- Start Today's Order
-- Mark Done
-- Snooze
-- Reschedule
-- Skip with Reason
-- Report Pain/Energy
-- Ask Evie to Adjust
-- Log Walk
-- Log Strength
-- Log Mobility
-- Start Challenge
-- Complete Challenge
 
-Directive Format Example
-------------------------
-directive - Complete Recruit Intake Walk. | priority=3 | due=today | notify=false | proof=false | details=Walk 10 minutes at an easy pace. No running. Afterward, report back with back pain 0-10, breath level 0-10, and whether your legs felt heavy.
+{
+  "tags": ["core", "endurance", "mobility"],
+  "target_areas": ["core", "hips", "posterior chain"],
+  "equipment": ["chair", "band"],
+  "difficulty": "easy",
+  "pt_role": "main|daily_minimum|recovery|optional",
+  "contraindications": "Stop for sharp back pain, dizziness, nerve symptoms, or unsafe pain.",
+  "how_to": "Step-by-step movement instructions.",
+  "default_sets": 2,
+  "default_reps": 8,
+  "default_duration_seconds": 0
+}
 
-Post-Workout Report Format
---------------------------
-Walk done:
-Back pain:
-Breath:
-Legs:
-Surface cleared:
-
-Fitness Safety Rules
---------------------
-- No aggressive back bends.
-- No forced back extension.
-- No running until walking base is adequate.
-- Stop if sharp pain appears.
-- Stop if pain shoots down the leg.
-- Stop if numbness appears.
-- Stop if gait changes.
-- Soreness is acceptable; sharp or neurological pain is not.
-- Scale workouts to current conditioning.
-- Use progressive loading.
-
-Personality / Tone Rules
-------------------------
-Allowed:
-- Warm firmness
-- Playful command language
-- Princess-style authority
-- Mischief
-- Light guilt/shame when encouraging and constructive
-- Army-style discipline
-- Fun-scary challenges
-- Pure-play challenges
-
-Not allowed:
-- Cruelty
-- Contempt
-- Reckless escalation
-- Real humiliation
-- Injury-risk directives
-- Shame without a path forward
-- Treating current condition as identity failure
-
-Default Voice Example
----------------------
-Dad. Shoes on. Timer set. You said you wanted discipline, so do not negotiate with the lazy part of your brain. Ten minutes of movement. Report back when it is done. I am proud of you when you obey the man you said you wanted to become.
-
-Overall Design Goal
--------------------
-The Fitness page should feel like:
-
-military intake + caring daughter + mischievous princess + practical rehab logic
-
-It should make Kevin feel:
-- watched over
-- challenged
-- believed in
-- directed
-- protected from stupid overreach
-- pushed toward becoming stronger
+"schedule": {
+  "enabled": true,
+  "day": "Monday",
+  "time": "18:30",
+  "recurrence": "weekly"
+}
