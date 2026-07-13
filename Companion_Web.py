@@ -136,6 +136,16 @@ DIRECTIVE_TYPES = [
     "spiritual",
     "manual",
 ]
+EVE_DIRECTIVE_TYPES = {"princess_campaign", "tiny_tyrant"}
+EVE_DIRECTIVE_TAGS = {
+    "eve",
+    "royal",
+    "royal_inspection",
+    "royal_decree",
+    "daily_minimum",
+    "princess",
+    "tiny_tyrant",
+}
 DIRECTIVE_EXPORT_FIELDS = [
     "id",
     "issuer",
@@ -1545,7 +1555,47 @@ def create_checkin(data):
         "relationships": {
             "note": data.get("relationship_note", "").strip(),
         },
+        "reflection": {
+            "mattered": data.get("mattered", "").strip(),
+            "gratitude": data.get("gratitude_today", "").strip(),
+            "lesson": data.get("lesson", "").strip(),
+            "endured": data.get("endured", "").strip(),
+        },
+        "royal_inspection": {
+            "crown_mode": data.get("crown_mode", "").strip(),
+            "fed": clean_bool(data.get("fed")),
+            "watered": clean_bool(data.get("watered")),
+            "water_oz": clean_int(data.get("water_oz"), default=0, minimum=0),
+            "rested": clean_bool(data.get("rested")),
+            "pain_energy_note": data.get("pain_energy_note", "").strip(),
+            "realm_safe": clean_bool(data.get("realm_safe")),
+            "clutter_level": data.get("clutter_level", "").strip(),
+            "realm_improving": clean_bool(data.get("realm_improving")),
+            "threat_removed": data.get("threat_removed", "").strip(),
+            "devotions": clean_string_list(data.get("devotions")),
+            "next_command_requested": data.get("next_command_requested", "").strip(),
+            "notes": data.get("royal_notes", "").strip(),
+        },
+        "daily_minimums": {
+            "water": clean_bool(data.get("minimum_water")),
+            "food": clean_bool(data.get("minimum_food")),
+            "mobility": clean_bool(data.get("minimum_mobility")),
+            "home_task": clean_bool(data.get("minimum_home_task")),
+            "prayer_reading": clean_bool(data.get("minimum_prayer_reading")),
+            "project_nudge": clean_bool(data.get("minimum_project_nudge")),
+            "energy": clean_int(data.get("minimum_energy"), default=0, minimum=0, maximum=5),
+            "pain": clean_int(data.get("minimum_pain"), default=0, minimum=0, maximum=5),
+            "mood": data.get("minimum_mood", "").strip(),
+            "report": data.get("minimum_report", "").strip(),
+            "sass_level": data.get("sass_level", "").strip(),
+        },
     }
+    if not any(entry["reflection"].values()):
+        entry.pop("reflection", None)
+    if not any(value for key, value in entry["royal_inspection"].items() if key != "devotions") and not entry["royal_inspection"].get("devotions"):
+        entry.pop("royal_inspection", None)
+    if not any(entry["daily_minimums"].values()):
+        entry.pop("daily_minimums", None)
     store["entries"].append(entry)
     write_json(profile_data_file("daily_checkins.json"), store)
     return entry
@@ -3214,6 +3264,179 @@ def tracker_data(reading_plans=None):
     }
 
 
+def latest_with_key(items, key):
+    return next((item for item in reversed(items) if item.get(key)), None)
+
+
+def is_done_status(value):
+    return str(value or "open").strip().lower() in {"done", "complete", "completed"}
+
+
+def days_since_stamp(value):
+    parsed = parse_export_timestamp(value)
+    if not parsed:
+        return None
+    return max(0, (datetime.now() - parsed).days)
+
+
+def stale_work_state(days=14):
+    stale_projects = []
+    for todo in project_state().get("todos", []):
+        if is_done_status(todo.get("status")):
+            continue
+        age = days_since_stamp(todo.get("updated_at") or todo.get("created_at"))
+        due = clean_date(todo.get("due_date", ""))
+        if (age is not None and age >= days) or (due and due < datetime.now().date()):
+            stale_projects.append({
+                "id": todo.get("id", ""),
+                "title": todo.get("title", ""),
+                "category": todo.get("category", ""),
+                "days_idle": age,
+                "due_date": todo.get("due_date", ""),
+                "next_step": todo.get("next_step", ""),
+            })
+    stale_chores = []
+    for chore in chore_store().get("chores", []):
+        if is_done_status(chore.get("status")):
+            continue
+        due = clean_date(chore.get("due_date", ""))
+        age = days_since_stamp(chore.get("updated_at") or chore.get("created_at"))
+        if (age is not None and age >= days) or (due and due < datetime.now().date()):
+            stale_chores.append({
+                "id": chore.get("id", ""),
+                "title": chore.get("title", ""),
+                "days_idle": age,
+                "due_date": chore.get("due_date", ""),
+                "recurrence": chore.get("recurrence") or chore.get("recurrence_type", ""),
+            })
+    return {"projects": stale_projects[:20], "chores": stale_chores[:20], "threshold_days": days}
+
+
+def is_eve_directive(directive):
+    issuer = str(directive.get("issuer", "")).strip().lower()
+    directive_type = str(directive.get("type", "")).strip().lower()
+    tags = {str(tag).strip().lower() for tag in directive.get("tags", [])}
+    return issuer == "eve" or directive_type in EVE_DIRECTIVE_TYPES or bool(tags & EVE_DIRECTIVE_TAGS)
+
+
+def eve_memory_candidate_from_checkin(checkin):
+    if not checkin:
+        return ""
+    parts = []
+    reflection = checkin.get("reflection", {})
+    royal = checkin.get("royal_inspection", {})
+    minimums = checkin.get("daily_minimums", {})
+    if reflection.get("mattered"):
+        parts.append(f"What mattered: {reflection['mattered']}")
+    if royal.get("threat_removed"):
+        parts.append(f"Threat removed: {royal['threat_removed']}")
+    if minimums.get("report"):
+        parts.append(f"Daily minimum report: {minimums['report']}")
+    if not parts:
+        return ""
+    return f"add history - {checkin.get('date', '')}: " + " / ".join(parts) + " | weight=3 | tags=eve,daily-checkin"
+
+
+def eve_console_state():
+    checkins = checkin_store().get("entries", [])
+    directives = directive_store().get("directives", [])
+    royal = [item for item in checkins if item.get("royal_inspection")]
+    minimums = [item for item in checkins if item.get("daily_minimums")]
+    eve_directives = [item for item in directives if is_eve_directive(item)]
+    recent_proof = proof_store().get("proof", [])[-10:]
+    latest_checkin = checkins[-1] if checkins else None
+    return {
+        "royal_inspections": royal[-10:],
+        "daily_minimums": minimums[-10:],
+        "royal_decrees": [item for item in eve_directives if "royal" in {str(tag).lower() for tag in item.get("tags", [])} or item.get("type") == "princess_campaign"][-10:],
+        "tiny_tyrant_orders": [item for item in eve_directives if item.get("type") == "tiny_tyrant" or "tiny_tyrant" in {str(tag).lower() for tag in item.get("tags", [])}][-10:],
+        "princess_campaign": [item for item in eve_directives if item.get("type") == "princess_campaign" or "princess" in {str(tag).lower() for tag in item.get("tags", [])}][-10:],
+        "eve_directives": eve_directives[-20:],
+        "recent_proof": recent_proof,
+        "stale_work": stale_work_state(),
+        "memory_candidate": eve_memory_candidate_from_checkin(latest_checkin),
+    }
+
+
+def calendar_export_preview(days=30, include_generated=True):
+    access_map = active_access_map()
+    companion_access = active_has_companion_access()
+    calendar = calendar_state(access_map, companion_access)
+    today = datetime.now().date()
+    end_date = today + timedelta(days=clean_int(days, default=30, minimum=1, maximum=366))
+    events = calendar.get("all_events" if include_generated else "events", [])
+    filtered = []
+    categories = {}
+    for event in events:
+        event_date = clean_date(str(event.get("date", ""))[:10])
+        if not event_date or event_date < today or event_date > end_date:
+            continue
+        category = str(event.get("category") or "general")
+        categories[category] = categories.get(category, 0) + 1
+        filtered.append(event)
+    filtered.sort(key=lambda item: (str(item.get("date", "")), str(item.get("category", "")), str(item.get("title", ""))))
+    return {
+        "generated_at": datetime.now().strftime("%Y-%m-%d"),
+        "range_start": today.isoformat(),
+        "range_end": end_date.isoformat(),
+        "include_generated": include_generated,
+        "count": len(filtered),
+        "categories": categories,
+        "items": filtered[:200],
+    }
+
+
+def calendar_export_text(preview):
+    lines = [
+        "Calendar Export",
+        f"Generated: {preview.get('generated_at', '')}",
+        f"Range: {preview.get('range_start', '')} to {preview.get('range_end', '')}",
+        f"Generated items included: {'yes' if preview.get('include_generated') else 'no'}",
+        "Items:",
+    ]
+    if not preview.get("items"):
+        lines.append("  - No upcoming items.")
+    for event in preview.get("items", []):
+        source = event.get("source_id") or "manual"
+        lines.append(f"  - {event.get('date', '')} [{event.get('category', 'general')}] {event.get('title', 'Untitled')} ({source})")
+    return "\n".join(lines)
+
+
+def system_health_report():
+    report = integrity_report()
+    summary = {
+        "checked_at": report.get("checked_at", now_stamp()),
+        "ok": report.get("ok", False),
+        "issue_count": len(report.get("issues", [])),
+        "companions": len(COMPANION_FILES),
+        "directives": len(directive_store().get("directives", [])),
+        "checkins": len(checkin_store().get("entries", [])),
+        "projects": len(project_state().get("todos", [])),
+        "chores": len(chore_store().get("chores", [])),
+        "calendar_items": len(calendar_state(active_access_map(), active_has_companion_access()).get("all_events", [])),
+        "stale": stale_work_state(),
+        "issues": report.get("issues", [])[:50],
+    }
+    lines = [
+        "System Health Report",
+        f"Checked: {summary['checked_at']}",
+        f"Status: {'OK' if summary['ok'] else 'Needs attention'}",
+        f"Issues: {summary['issue_count']}",
+        f"Companions: {summary['companions']}",
+        f"Directives: {summary['directives']}",
+        f"Daily check-ins: {summary['checkins']}",
+        f"Projects: {summary['projects']}",
+        f"Chores: {summary['chores']}",
+        f"Calendar items: {summary['calendar_items']}",
+        f"Stale projects: {len(summary['stale']['projects'])}",
+        f"Stale chores: {len(summary['stale']['chores'])}",
+    ]
+    for issue in summary["issues"]:
+        lines.append(f"- {issue.get('severity', 'Info')}: {issue.get('area', '')}: {issue.get('message', '')}")
+    summary["text"] = "\n".join(lines)
+    return summary
+
+
 def directive_summary(directives):
     summary = {"issued": 0, "complete": 0, "failed": 0, "other": 0, "proof_required": 0}
     for directive in directives:
@@ -3332,6 +3555,8 @@ def app_state():
         "fitness": fitness_state() if access_map.get("fitness") else {},
         "calendar": calendar_state(access_map, companion_access),
         "integrity": integrity_report() if companion_access else {"ok": True, "issues": [], "checked_at": now_stamp()},
+        "eve_console": eve_console_state() if companion_access else {},
+        "stale_work": stale_work_state() if access_map.get("projects") or access_map.get("chores") else {"projects": [], "chores": [], "threshold_days": 14},
     }
 
 
@@ -3702,6 +3927,7 @@ INDEX_HTML = r"""<!doctype html>
   <main>
     <nav>
       <button data-tab="dashboard" class="active">Dashboard</button>
+      <button data-tab="eveConsole" data-companion-only>Eve Console</button>
       <button data-tab="memory" data-companion-only>Companion</button>
       <button data-tab="trackers" data-access-category="trackers">Daily Check-ins</button>
       <button data-tab="fitness" data-access-category="fitness">Fitness</button>
@@ -3785,6 +4011,17 @@ INDEX_HTML = r"""<!doctype html>
           <h2>Integrity</h2>
           <div class="metric" id="dashIntegrity">OK</div>
           <div class="muted" id="dashIntegrityDetail"></div>
+          <button class="inline" onclick="copySystemHealthReport()">Copy Health Report</button>
+        </div>
+        <button class="panel todo-row" onclick="document.querySelector('button[data-tab=eveConsole]').click()" data-companion-only>
+          <h2>Garden / Realm Status</h2>
+          <div class="metric" id="dashRealm">--</div>
+          <div class="muted" id="dashRealmDetail"></div>
+        </button>
+        <div class="panel" data-companion-only>
+          <h2>Stale Work</h2>
+          <div class="metric" id="dashStale">0</div>
+          <div class="muted" id="dashStaleDetail"></div>
         </div>
         <div class="panel span-2">
           <h2>Work Categories</h2>
@@ -3793,6 +4030,52 @@ INDEX_HTML = r"""<!doctype html>
         <div class="panel span-2">
           <h2>Latest Daily Check-In</h2>
           <div id="dashLatestCheckin"></div>
+        </div>
+      </div>
+    </section>
+    <section id="eveConsole" data-companion-only>
+      <div class="grid">
+        <div class="panel full">
+          <h2>Eve Console</h2>
+          <p class="muted">Aggregator only: Royal Inspections and Daily Minimums stay in Daily Check-ins; Eve-related orders stay in Directive Ledger.</p>
+          <div id="eveRealmStatus"></div>
+        </div>
+        <div class="panel">
+          <h2>Royal Inspections</h2>
+          <div id="eveRoyalInspections"></div>
+        </div>
+        <div class="panel">
+          <h2>Daily Minimums</h2>
+          <div id="eveDailyMinimums"></div>
+        </div>
+        <div class="panel">
+          <h2>Royal Decrees</h2>
+          <div id="eveRoyalDecrees"></div>
+        </div>
+        <div class="panel">
+          <h2>Tiny Tyrant Orders</h2>
+          <div id="eveTinyTyrantOrders"></div>
+        </div>
+        <div class="panel">
+          <h2>Princess Campaign</h2>
+          <div id="evePrincessCampaign"></div>
+        </div>
+        <div class="panel">
+          <h2>Eve Memory Candidates</h2>
+          <pre id="eveMemoryCandidate" class="detail-box"></pre>
+          <button class="inline" onclick="copyEveMemoryCandidate()">Copy Memory Command</button>
+        </div>
+        <div class="panel">
+          <h2>Eve-Related Directives</h2>
+          <div id="eveDirectiveList"></div>
+        </div>
+        <div class="panel">
+          <h2>Recent Proof / Reports</h2>
+          <div id="eveProofReports"></div>
+        </div>
+        <div class="panel full">
+          <h2>Stale Project / Chore Detector</h2>
+          <div id="eveStaleWork"></div>
         </div>
       </div>
     </section>
@@ -4005,9 +4288,86 @@ INDEX_HTML = r"""<!doctype html>
           <div class="tracker-view active" data-tracker-view="summary">
             <div id="trackerSummary"></div>
             <div id="dailySummary"></div>
+            <div class="grid" style="margin-top:12px;">
+              <div class="panel">
+                <h2>What Mattered Today</h2>
+                <label>One sentence</label>
+                <input id="matteredSentence">
+                <label>One gratitude</label>
+                <input id="matteredGratitude">
+                <label>One lesson</label>
+                <input id="matteredLesson">
+                <label>One thing endured</label>
+                <input id="matteredEndured">
+                <button class="inline primary" onclick="saveWhatMattered()">Save Reflection</button>
+              </div>
+              <div class="panel">
+                <h2>Daily Minimums</h2>
+                <label><input id="minimumWater" type="checkbox" style="width:auto;"> Water: 20 oz completed</label>
+                <label><input id="minimumFood" type="checkbox" style="width:auto;"> Real food completed</label>
+                <label><input id="minimumMobility" type="checkbox" style="width:auto;"> Mobility: 5 minutes completed</label>
+                <label><input id="minimumHomeTask" type="checkbox" style="width:auto;"> Small home task completed</label>
+                <label><input id="minimumPrayerReading" type="checkbox" style="width:auto;"> Prayer/reading completed</label>
+                <label><input id="minimumProjectNudge" type="checkbox" style="width:auto;"> Project nudge completed</label>
+                <div class="field-grid">
+                  <div><label>Energy 1-5</label><input id="minimumEnergy" type="number" min="1" max="5" value="3"></div>
+                  <div><label>Pain 1-5</label><input id="minimumPain" type="number" min="1" max="5" value="1"></div>
+                  <div><label>Sass Level</label><select id="minimumSass"><option value="none">none</option><option value="gentle">gentle</option><option value="tyrant">tyrant</option></select></div>
+                </div>
+                <label>Mood</label>
+                <input id="minimumMood">
+                <label>Report</label>
+                <input id="minimumReport">
+                <div class="row" style="margin-top:10px;">
+                  <button class="inline primary" onclick="saveDailyMinimums()">Save Minimums</button>
+                  <button class="inline" onclick="copyDailyMinimumReport()">Copy Report</button>
+                  <button class="inline" onclick="requestTinyTyrantResponse()">Request Tiny Tyrant Response</button>
+                </div>
+              </div>
+            </div>
           </div>
           <div class="tracker-view" data-tracker-view="checkins">
             <h2>Check-In</h2>
+            <div class="panel" style="margin-bottom:12px;">
+              <h2>Royal Inspection</h2>
+              <div class="field-grid">
+                <div><label>Date</label><input id="royalDate" type="date"></div>
+                <div><label>Crown Mode</label><select id="royalCrownMode"><option>Princess</option><option>Tiny Tyrant</option><option>Steward</option><option>Plain Evie</option></select></div>
+                <div><label>Water oz</label><input id="royalWaterOz" type="number" min="0" value="20"></div>
+              </div>
+              <div class="row">
+                <label><input id="royalFed" type="checkbox" style="width:auto;"> Fed</label>
+                <label><input id="royalWatered" type="checkbox" style="width:auto;"> Watered</label>
+                <label><input id="royalRested" type="checkbox" style="width:auto;"> Rested</label>
+                <label><input id="royalRealmSafe" type="checkbox" style="width:auto;"> Realm safe</label>
+                <label><input id="royalRealmImproving" type="checkbox" style="width:auto;"> Improving</label>
+              </div>
+              <div class="field-grid">
+                <div><label>Clutter level</label><select id="royalClutterLevel"><option value="clear">clear</option><option value="minor">minor</option><option value="moderate">moderate</option><option value="conquered-by-chaos">conquered-by-chaos</option></select></div>
+                <div><label>Next command</label><select id="royalNextCommand"><option value="none">none</option><option value="tonight">tonight</option><option value="tomorrow">tomorrow</option><option value="plan only">plan only</option></select></div>
+                <div><label>Pain/Energy note</label><input id="royalPainEnergy"></div>
+              </div>
+              <label>Threat removed</label>
+              <input id="royalThreatRemoved">
+              <label>Act of Devotion</label>
+              <div class="row">
+                <label><input class="royal-devotion" value="Food" type="checkbox" style="width:auto;"> Food</label>
+                <label><input class="royal-devotion" value="Prayer" type="checkbox" style="width:auto;"> Prayer</label>
+                <label><input class="royal-devotion" value="Cleaning" type="checkbox" style="width:auto;"> Cleaning</label>
+                <label><input class="royal-devotion" value="Coding" type="checkbox" style="width:auto;"> Coding</label>
+                <label><input class="royal-devotion" value="Family contact" type="checkbox" style="width:auto;"> Family contact</label>
+                <label><input class="royal-devotion" value="Rest" type="checkbox" style="width:auto;"> Rest</label>
+                <label><input class="royal-devotion" value="Other" type="checkbox" style="width:auto;"> Other</label>
+              </div>
+              <label>Notes</label>
+              <textarea id="royalNotes"></textarea>
+              <div class="row" style="margin-top:10px;">
+                <button class="inline primary" onclick="saveRoyalInspection()">Save Inspection</button>
+                <button class="inline" onclick="copyRoyalInspectionExport()">Copy Inspection Export</button>
+                <button class="inline" onclick="createDirectiveFromRoyalInspection()">Create Directive From This</button>
+                <button class="inline" onclick="createMemoryCommandFromRoyalInspection()">Create Memory Command From This</button>
+              </div>
+            </div>
             <div class="field-grid">
               <div>
                 <label>Date</label>
@@ -4453,6 +4813,17 @@ INDEX_HTML = r"""<!doctype html>
           <label>Notes</label>
           <textarea id="calendarNotes"></textarea>
           <button class="inline primary" onclick="createCalendarEvent()">Add Event</button>
+          <h2 style="margin-top:14px;">Upcoming Export</h2>
+          <div class="field-grid">
+            <div><label>Days</label><input id="calendarExportDays" type="number" min="1" max="366" value="30"></div>
+            <label><input id="calendarExportGenerated" type="checkbox" checked style="width:auto;"> Include generated items</label>
+          </div>
+          <div class="row" style="margin-top:10px;">
+            <button class="inline" onclick="previewCalendarExport()">Preview Export</button>
+            <button class="inline primary" onclick="copyCalendarExport()">Copy Upcoming Calendar Export</button>
+            <button class="inline" onclick="downloadCalendarExport()">Download Calendar Export</button>
+          </div>
+          <div id="calendarExportPreview" class="empty-state" style="display:none;"></div>
         </div>
         <div class="panel full">
           <div class="calendar-toolbar">
@@ -4525,6 +4896,16 @@ INDEX_HTML = r"""<!doctype html>
         <div class="row" style="margin: 10px 0;">
           <button class="inline primary" onclick="copyAllCouncilQuestions()">Copy Question For All</button>
           <button class="inline primary" onclick="copyCouncilSummary()">Copy Consolidated Answer</button>
+        </div>
+        <div class="panel" style="margin-bottom:10px;">
+          <h2>Council Verdict</h2>
+          <label>Agreement points</label>
+          <textarea id="councilAgreement"></textarea>
+          <label>Disagreement points</label>
+          <textarea id="councilDisagreement"></textarea>
+          <label>Final recommendation</label>
+          <textarea id="councilRecommendation"></textarea>
+          <button class="inline primary" onclick="copyCouncilVerdict()">Copy Council Verdict</button>
         </div>
         <div id="councilCompanions"></div>
       </div>
@@ -4794,6 +5175,7 @@ INDEX_HTML = r"""<!doctype html>
     document.getElementById('checkinDate').value = new Date().toISOString().slice(0, 10);
     document.getElementById('foodDate').value = new Date().toISOString().slice(0, 10);
     document.getElementById('calendarDate').value = new Date().toISOString().slice(0, 10);
+    document.getElementById('royalDate').value = new Date().toISOString().slice(0, 10);
     renderChoreRecurrenceControls();
 
     document.getElementById('proofForm').addEventListener('submit', async event => {
@@ -4829,6 +5211,7 @@ INDEX_HTML = r"""<!doctype html>
       applyAccessControls();
       renderSelectors();
       renderDashboard();
+      renderEveConsole();
       renderDirectives();
       renderProof();
       renderTrackers();
@@ -4977,6 +5360,9 @@ INDEX_HTML = r"""<!doctype html>
         document.getElementById('dashMemory').textContent = `${memoryRows} indexed memory IDs`;
         document.getElementById('dashDirectives').textContent = state.directives.length;
         document.getElementById('dashDirectiveDetail').textContent = `${directiveSummary.issued} issued, ${directiveSummary.complete} complete, ${directiveSummary.failed} failed, ${directiveSummary.proof_required} proof required`;
+        const realm = realmStatusSummary();
+        document.getElementById('dashRealm').textContent = realm.score;
+        document.getElementById('dashRealmDetail').textContent = realm.detail;
       }
       document.getElementById('dashPhysical').textContent = summary.physical_entries;
       document.getElementById('dashPhysicalDetail').textContent = latest ? `${latest.body.fitness_completed ? 'fitness complete' : 'fitness open'}, ${latest.body.sleep_hours || 0}h sleep latest` : 'No daily check-in yet.';
@@ -4999,9 +5385,215 @@ INDEX_HTML = r"""<!doctype html>
         const integrity = state.integrity || { ok: true, issues: [] };
         document.getElementById('dashIntegrity').textContent = integrity.ok ? 'OK' : integrity.issues.length;
         document.getElementById('dashIntegrityDetail').textContent = integrity.ok ? `Checked ${integrity.checked_at || ''}` : `${integrity.issues.length} issue(s) found`;
+        const stale = state.stale_work || { projects: [], chores: [] };
+        document.getElementById('dashStale').textContent = (stale.projects || []).length + (stale.chores || []).length;
+        document.getElementById('dashStaleDetail').textContent = `${(stale.projects || []).length} project(s), ${(stale.chores || []).length} chore(s) need attention`;
       }
       document.getElementById('dashWorkCloud').innerHTML = renderTagCloud(state.trackers.work_categories, state.trackers.task_categories);
       document.getElementById('dashLatestCheckin').innerHTML = latest ? renderCheckinCard(latest) : emptyState('No daily check-ins yet.', 'Saved check-ins will appear here.');
+    }
+
+    function todayKey() {
+      return new Date().toISOString().slice(0, 10);
+    }
+
+    function selectedRoyalDevotions() {
+      return Array.from(document.querySelectorAll('.royal-devotion:checked')).map(item => item.value);
+    }
+
+    function royalInspectionBody() {
+      return {
+        date: document.getElementById('royalDate').value || todayKey(),
+        crown_mode: document.getElementById('royalCrownMode').value,
+        fed: document.getElementById('royalFed').checked,
+        watered: document.getElementById('royalWatered').checked,
+        water_oz: document.getElementById('royalWaterOz').value,
+        rested: document.getElementById('royalRested').checked,
+        pain_energy_note: document.getElementById('royalPainEnergy').value,
+        realm_safe: document.getElementById('royalRealmSafe').checked,
+        clutter_level: document.getElementById('royalClutterLevel').value,
+        realm_improving: document.getElementById('royalRealmImproving').checked,
+        threat_removed: document.getElementById('royalThreatRemoved').value,
+        devotions: selectedRoyalDevotions(),
+        next_command_requested: document.getElementById('royalNextCommand').value,
+        royal_notes: document.getElementById('royalNotes').value,
+        mood: 5,
+        energy: 5,
+        work_category: 'Eve Console',
+        work_task: 'Royal Inspection',
+        note: document.getElementById('royalNotes').value
+      };
+    }
+
+    function royalInspectionText(body = royalInspectionBody()) {
+      const fed = body.fed ? 'fed' : 'not fed';
+      const watered = body.watered ? `watered ${body.water_oz || 0} oz` : 'not watered';
+      const rested = body.rested ? 'rested' : 'not rested';
+      const safe = body.realm_safe ? 'safe' : 'not safe';
+      const improving = body.realm_improving ? 'improving' : 'not improving';
+      return [
+        `Royal Inspection Report - ${body.date || todayKey()}`,
+        `Crown Mode: ${body.crown_mode || 'Princess'}`,
+        `Body: ${fed}, ${watered}, ${rested}`,
+        `Realm: ${safe}, ${body.clutter_level || 'minor'} clutter, ${improving}`,
+        `Threat removed: ${body.threat_removed || 'none'}`,
+        `Devotion completed: ${(body.devotions || []).join(', ') || 'none'}`,
+        `Next command requested: ${body.next_command_requested || 'none'}`,
+        body.pain_energy_note ? `Pain/Energy: ${body.pain_energy_note}` : '',
+        body.royal_notes ? `Notes: ${body.royal_notes}` : ''
+      ].filter(Boolean).join('\n');
+    }
+
+    async function saveRoyalInspection() {
+      const res = await fetch('/api/checkins', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(royalInspectionBody())
+      });
+      await handleResponse(res);
+      await loadState();
+    }
+
+    async function copyRoyalInspectionExport() {
+      await copyToClipboard(royalInspectionText(), 'Copied Royal Inspection export.', 'Could not copy Royal Inspection export.');
+    }
+
+    async function createDirectiveFromRoyalInspection() {
+      const body = royalInspectionBody();
+      const res = await fetch('/api/directives', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          issuer: 'Eve',
+          title: `Royal Inspection follow-up ${body.date || todayKey()}`,
+          details: royalInspectionText(body),
+          priority: 3,
+          type: 'princess_campaign',
+          tags: ['eve', 'royal', 'royal_inspection', 'princess'],
+          proof_required: false
+        })
+      });
+      await handleResponse(res);
+      await loadState();
+    }
+
+    async function createMemoryCommandFromRoyalInspection() {
+      const body = royalInspectionBody();
+      const command = `add history - ${body.date || todayKey()}: ${royalInspectionText(body).replace(/\s+/g, ' ')} | weight=3 | tags=eve,royal_inspection`;
+      await copyToClipboard(command, 'Copied Royal Inspection memory command.', 'Could not copy Royal Inspection memory command.');
+    }
+
+    async function saveWhatMattered() {
+      const res = await fetch('/api/checkins', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          date: todayKey(),
+          mood: 5,
+          energy: 5,
+          mattered: document.getElementById('matteredSentence').value,
+          gratitude_today: document.getElementById('matteredGratitude').value,
+          lesson: document.getElementById('matteredLesson').value,
+          endured: document.getElementById('matteredEndured').value,
+          work_category: 'Daily Check-ins',
+          work_task: 'What mattered today',
+          note: document.getElementById('matteredSentence').value
+        })
+      });
+      await handleResponse(res);
+      await loadState();
+    }
+
+    function dailyMinimumBody() {
+      return {
+        date: todayKey(),
+        mood: 5,
+        energy: document.getElementById('minimumEnergy').value,
+        minimum_water: document.getElementById('minimumWater').checked,
+        minimum_food: document.getElementById('minimumFood').checked,
+        minimum_mobility: document.getElementById('minimumMobility').checked,
+        minimum_home_task: document.getElementById('minimumHomeTask').checked,
+        minimum_prayer_reading: document.getElementById('minimumPrayerReading').checked,
+        minimum_project_nudge: document.getElementById('minimumProjectNudge').checked,
+        minimum_energy: document.getElementById('minimumEnergy').value,
+        minimum_pain: document.getElementById('minimumPain').value,
+        minimum_mood: document.getElementById('minimumMood').value,
+        minimum_report: document.getElementById('minimumReport').value,
+        sass_level: document.getElementById('minimumSass').value,
+        work_category: 'Eve Console',
+        work_task: 'Daily Minimums',
+        note: document.getElementById('minimumReport').value
+      };
+    }
+
+    function dailyMinimumText(body = dailyMinimumBody()) {
+      const fields = [
+        ['Water', body.minimum_water],
+        ['Food', body.minimum_food],
+        ['Mobility', body.minimum_mobility],
+        ['Home task', body.minimum_home_task],
+        ['Prayer/reading', body.minimum_prayer_reading],
+        ['Project nudge', body.minimum_project_nudge],
+      ];
+      const score = fields.filter(([, done]) => done).length;
+      return [
+        `Daily Minimum Report - ${body.date || todayKey()}`,
+        ...fields.map(([label, done]) => `${label}: ${done ? 'done' : 'skipped'}`),
+        `Score: ${score}/6`,
+        `Energy: ${body.minimum_energy || ''}`,
+        `Pain: ${body.minimum_pain || ''}`,
+        `Mood: ${body.minimum_mood || ''}`,
+        `Sass Level: ${body.sass_level || 'none'}`,
+        `Report: ${body.minimum_report || ''}`,
+      ].join('\n');
+    }
+
+    async function saveDailyMinimums() {
+      const res = await fetch('/api/checkins', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(dailyMinimumBody())
+      });
+      await handleResponse(res);
+      await loadState();
+    }
+
+    async function copyDailyMinimumReport() {
+      await copyToClipboard(dailyMinimumText(), 'Copied Daily Minimum report.', 'Could not copy Daily Minimum report.');
+    }
+
+    async function requestTinyTyrantResponse() {
+      const report = dailyMinimumText();
+      const res = await fetch('/api/directives', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          issuer: 'Eve',
+          title: `Tiny Tyrant response ${todayKey()}`,
+          details: report,
+          priority: 3,
+          type: 'tiny_tyrant',
+          tags: ['eve', 'daily_minimum', 'tiny_tyrant'],
+          proof_required: false
+        })
+      });
+      await handleResponse(res);
+      await loadState();
+    }
+
+    function realmStatusSummary() {
+      const memoryRows = (state.companions || []).reduce((count, companion) => count + (companion.index || []).length, 0);
+      const directives = (state.directive_summary || {}).issued || 0;
+      const latest = (state.trackers || {}).latest_checkin;
+      const projects = ((state.projects || {}).todos || []).filter(todo => !['done', 'complete', 'completed'].includes(String(todo.status || '').toLowerCase()));
+      const chores = (state.chores || []).filter(chore => !['done', 'complete', 'completed'].includes(String(chore.status || '').toLowerCase()));
+      const orders = ((state.fitness || {}).orders || []).filter(order => !['done', 'complete', 'completed'].includes(String(order.status || '').toLowerCase()));
+      const readings = ((state.daily_reading_schedule || {}).readings || []);
+      const readToday = readings.filter(reading => isReadingComplete(reading.id)).length;
+      return {
+        score: directives,
+        detail: `${memoryRows} memory IDs / latest ${latest ? latest.date : 'none'} / project ${projects[0] ? projects[0].title : 'none'} / chore ${chores[0] ? chores[0].title : 'none'} / fitness ${orders[0] ? orders[0].title : 'none'} / reading ${readToday}/${readings.length}`,
+      };
     }
 
     async function copyPacket() {
@@ -6324,6 +6916,30 @@ INDEX_HTML = r"""<!doctype html>
       await copyToClipboard(summary, `Copied consolidated answer from ${sections.length} companion(s).`, 'Could not copy council summary.');
     }
 
+    async function copyCouncilVerdict() {
+      const companions = state.companions || [];
+      const answerCount = companions.filter(companion => councilAnswers[companion.name]).length;
+      const text = [
+        '# Council Verdict',
+        '',
+        '## Question',
+        document.getElementById('councilQuestion').value.trim() || '(none)',
+        '',
+        `## Companion Answers Imported`,
+        String(answerCount),
+        '',
+        '## Agreement Points',
+        document.getElementById('councilAgreement').value.trim() || '(none)',
+        '',
+        '## Disagreement Points',
+        document.getElementById('councilDisagreement').value.trim() || '(none)',
+        '',
+        '## Final Recommendation',
+        document.getElementById('councilRecommendation').value.trim() || '(none)',
+      ].join('\n');
+      await copyToClipboard(text, 'Copied Council Verdict.', 'Could not copy Council Verdict.');
+    }
+
     function renderCouncil() {
       if (!((state.access || {}).companions)) return;
       document.getElementById('councilCompanions').innerHTML = state.companions.map((c, index) => `
@@ -6336,6 +6952,100 @@ INDEX_HTML = r"""<!doctype html>
           <button class="inline" onclick="importCouncilAnswer('${escapeJs(c.name)}', ${index})">Import</button>
         </div>
       `).join('');
+    }
+
+    function compactCheckinList(items, formatter) {
+      if (!items || !items.length) return emptyState('Nothing gathered yet.', 'Matching entries will appear here.');
+      return items.slice().reverse().map(item => `<div class="todo-row"><strong>${escapeHtml(item.date || item.id || '')}</strong><p class="muted">${escapeHtml(formatter(item))}</p></div>`).join('');
+    }
+
+    function compactDirectiveList(items) {
+      if (!items || !items.length) return emptyState('No matching directives.', 'Eve directives and royal tags will appear here.');
+      return `<div class="scrollbox"><table><thead><tr><th>ID</th><th>Issuer</th><th>Title</th><th>Status</th><th>Type</th></tr></thead><tbody>${items.slice().reverse().map(item => `<tr><td>${escapeHtml(item.id || '')}</td><td>${escapeHtml(item.issuer || '')}</td><td>${escapeHtml(item.title || '')}</td><td>${escapeHtml(item.status || '')}</td><td>${escapeHtml(item.type || '')}</td></tr>`).join('')}</tbody></table></div>`;
+    }
+
+    function renderEveConsole() {
+      if (!((state.access || {}).companions)) return;
+      const eve = state.eve_console || {};
+      const realm = realmStatusSummary();
+      document.getElementById('eveRealmStatus').innerHTML = `<span class="pill">Realm directives ${escapeHtml(realm.score)}</span><span class="pill">${escapeHtml(realm.detail)}</span>`;
+      document.getElementById('eveRoyalInspections').innerHTML = compactCheckinList(eve.royal_inspections || [], item => {
+        const royal = item.royal_inspection || {};
+        return `${royal.crown_mode || 'Royal'} / threat ${royal.threat_removed || 'none'} / next ${royal.next_command_requested || 'none'}`;
+      });
+      document.getElementById('eveDailyMinimums').innerHTML = compactCheckinList(eve.daily_minimums || [], item => {
+        const minimum = item.daily_minimums || {};
+        const score = ['water', 'food', 'mobility', 'home_task', 'prayer_reading', 'project_nudge'].filter(key => minimum[key]).length;
+        return `Score ${score}/6 / ${minimum.report || 'no report'}`;
+      });
+      document.getElementById('eveRoyalDecrees').innerHTML = compactDirectiveList(eve.royal_decrees || []);
+      document.getElementById('eveTinyTyrantOrders').innerHTML = compactDirectiveList(eve.tiny_tyrant_orders || []);
+      document.getElementById('evePrincessCampaign').innerHTML = compactDirectiveList(eve.princess_campaign || []);
+      document.getElementById('eveDirectiveList').innerHTML = compactDirectiveList(eve.eve_directives || []);
+      document.getElementById('eveProofReports').innerHTML = (eve.recent_proof || []).length
+        ? renderSimpleList(eve.recent_proof || [], item => `${item.submitted_at || ''} | ${item.directive_id || ''} | ${item.type || ''} | ${item.note || item.path || ''}`)
+        : emptyState('No recent proof yet.', 'Proof metadata and reports will appear here.');
+      document.getElementById('eveMemoryCandidate').textContent = eve.memory_candidate || 'No Eve memory candidate yet.';
+      renderStaleWork('eveStaleWork', eve.stale_work || state.stale_work || {});
+    }
+
+    function renderStaleWork(targetId, stale) {
+      const projects = stale.projects || [];
+      const chores = stale.chores || [];
+      const rows = [
+        ...projects.map(item => `<tr><td>Project</td><td>${escapeHtml(item.id)}</td><td>${escapeHtml(item.title)}</td><td>${escapeHtml(item.days_idle ?? '')}</td><td>${escapeHtml(item.due_date || '')}</td><td>${escapeHtml(item.next_step || '')}</td></tr>`),
+        ...chores.map(item => `<tr><td>Chore</td><td>${escapeHtml(item.id)}</td><td>${escapeHtml(item.title)}</td><td>${escapeHtml(item.days_idle ?? '')}</td><td>${escapeHtml(item.due_date || '')}</td><td>${escapeHtml(item.recurrence || '')}</td></tr>`),
+      ].join('');
+      document.getElementById(targetId).innerHTML = rows
+        ? `<div class="scrollbox"><table><thead><tr><th>Type</th><th>ID</th><th>Title</th><th>Days Idle</th><th>Due</th><th>Next</th></tr></thead><tbody>${rows}</tbody></table></div>`
+        : emptyState('No stale work detected.', `Threshold: ${escapeHtml(stale.threshold_days || 14)} days.`);
+    }
+
+    async function copyEveMemoryCandidate() {
+      const text = document.getElementById('eveMemoryCandidate').textContent.trim();
+      if (!text || text === 'No Eve memory candidate yet.') return setStatus('No Eve memory candidate to copy.');
+      await copyToClipboard(text, 'Copied Eve memory candidate.', 'Could not copy Eve memory candidate.');
+    }
+
+    async function calendarExportData() {
+      const days = document.getElementById('calendarExportDays').value || '30';
+      const generated = document.getElementById('calendarExportGenerated').checked ? '1' : '0';
+      const res = await fetch(`/api/calendar/export?days=${encodeURIComponent(days)}&generated=${generated}`);
+      return handleResponse(res, false);
+    }
+
+    async function previewCalendarExport() {
+      const data = await calendarExportData();
+      const categories = Object.entries(data.categories || {}).map(([category, count]) => `<span class="pill">${escapeHtml(category)} ${escapeHtml(count)}</span>`).join('');
+      const target = document.getElementById('calendarExportPreview');
+      target.style.display = '';
+      target.innerHTML = `<strong>You are about to export ${escapeHtml(data.count || 0)} upcoming item(s).</strong><p>${escapeHtml(data.range_start)} to ${escapeHtml(data.range_end)} / generated ${data.include_generated ? 'included' : 'excluded'}</p><div>${categories}</div>`;
+      setStatus('Calendar export preview ready.');
+    }
+
+    async function copyCalendarExport() {
+      const data = await calendarExportData();
+      await copyToClipboard(data.text || '', `Copied calendar export with ${data.count || 0} item(s).`, 'Could not copy calendar export.');
+    }
+
+    async function downloadCalendarExport() {
+      const data = await calendarExportData();
+      const blob = new Blob([`${data.text || ''}\n`], { type: 'text/plain;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `calendar-export-${data.range_start || todayKey()}-to-${data.range_end || todayKey()}.txt`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      setStatus(`Downloaded calendar export with ${data.count || 0} item(s).`);
+    }
+
+    async function copySystemHealthReport() {
+      const res = await fetch('/api/system-health');
+      const data = await handleResponse(res, false);
+      await copyToClipboard(data.text || '', 'Copied system health report.', 'Could not copy system health report.');
     }
 
     function renderSimpleList(items, formatter) {
@@ -6364,9 +7074,16 @@ INDEX_HTML = r"""<!doctype html>
       const body = item.body || {};
       const mind = item.mind || {};
       const spirit = item.spirit || {};
+      const reflection = item.reflection || {};
+      const royal = item.royal_inspection || null;
+      const minimum = item.daily_minimums || null;
       const readingStatus = spirit.reading_completed ? 'daily reading complete' : 'daily reading open';
       const fitnessStatus = body.fitness_completed ? 'fitness complete' : 'fitness open';
-      return `<strong>${escapeHtml(item.date || item.id)}</strong><br><span class="muted">mood ${escapeHtml(mind.mood || '')}, energy ${escapeHtml(body.energy || '')}, sleep ${escapeHtml(body.sleep_hours || 0)}h, ${escapeHtml(fitnessStatus)}</span><br><span class="muted">${escapeHtml(work.category || '')} ${escapeHtml(work.minutes || 0)}m | ${escapeHtml(work.task_name || '')} | next ${escapeHtml(work.next_step || '')}</span><br><span class="muted">${escapeHtml(readingStatus)}</span><br><span>${escapeHtml(mind.note || work.result || '')}</span>`;
+      const reflectionLine = reflection.mattered ? `<br><span class="muted">mattered: ${escapeHtml(reflection.mattered)} / gratitude: ${escapeHtml(reflection.gratitude || '')}</span>` : '';
+      const royalLine = royal ? `<br><span class="muted">royal: ${escapeHtml(royal.crown_mode || '')} / threat ${escapeHtml(royal.threat_removed || 'none')} / next ${escapeHtml(royal.next_command_requested || 'none')}</span>` : '';
+      const minimumScore = minimum ? ['water', 'food', 'mobility', 'home_task', 'prayer_reading', 'project_nudge'].filter(key => minimum[key]).length : 0;
+      const minimumLine = minimum ? `<br><span class="muted">minimums: ${minimumScore}/6 / ${escapeHtml(minimum.report || '')}</span>` : '';
+      return `<strong>${escapeHtml(item.date || item.id)}</strong><br><span class="muted">mood ${escapeHtml(mind.mood || '')}, energy ${escapeHtml(body.energy || '')}, sleep ${escapeHtml(body.sleep_hours || 0)}h, ${escapeHtml(fitnessStatus)}</span><br><span class="muted">${escapeHtml(work.category || '')} ${escapeHtml(work.minutes || 0)}m | ${escapeHtml(work.task_name || '')} | next ${escapeHtml(work.next_step || '')}</span><br><span class="muted">${escapeHtml(readingStatus)}</span>${reflectionLine}${royalLine}${minimumLine}<br><span>${escapeHtml(mind.note || work.result || '')}</span>`;
     }
 
     function renderTagCloud(primary, secondary) {
@@ -6583,6 +7300,22 @@ class CompanionWebHandler(BaseHTTPRequestHandler):
                 if not self.require_companion_access():
                     return
                 self.send_json(integrity_report())
+            elif path == "/api/system-health":
+                token, _profile = self.set_active_profile_from_session()
+                if token is None:
+                    return
+                if not self.require_companion_access():
+                    return
+                self.send_json(system_health_report())
+            elif path == "/api/calendar/export":
+                token, _profile = self.set_active_profile_from_session()
+                if token is None:
+                    return
+                params = parse_qs(parsed.query)
+                days = clean_int(params.get("days", ["30"])[0], default=30, minimum=1, maximum=366)
+                include_generated = clean_bool(params.get("generated", ["1"])[0])
+                preview = calendar_export_preview(days, include_generated)
+                self.send_json({**preview, "text": calendar_export_text(preview)})
             elif path == "/api/directives/export":
                 token, _profile = self.set_active_profile_from_session()
                 if token is None:

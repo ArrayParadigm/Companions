@@ -23,9 +23,14 @@ python Companion_Web.py --host 127.0.0.1 --port 8787
   category content is hidden until login. After login, the Session panel shows
   the signed-in profile and enabled category access, followed by summary cards
   for companion packets, directives, spiritual progress, fitness, diet,
-  projects, chores, calendar, integrity, work categories, and latest daily
-  check-in. If a session times out from inactivity, protected pages hide and the
-  console returns to Dashboard login.
+  projects, chores, calendar, integrity, Garden / Realm Status, stale work,
+  work categories, and latest daily check-in. If a session times out from
+  inactivity, protected pages hide and the console returns to Dashboard login.
+- Eve Console: Array-only aggregator for Royal Inspections, Daily Minimums,
+  Royal Decrees, Tiny Tyrant Orders, Princess Campaign items, Eve memory
+  candidates, Eve-related directives, recent proof/report metadata, and stale
+  project/chore visibility. It does not duplicate data: Daily Check-in quick
+  modes stay in Daily Check-ins and Eve-related orders stay in Directive Ledger.
 - Companion: Array-only packet management. The Memory tab copies opaque packets
   and handoffs, downloads packet text files, adds memories, previews/applies
   command batch counts without showing memory text, opens the New Companion
@@ -39,7 +44,8 @@ python Companion_Web.py --host 127.0.0.1 --port 8787
   metadata and uploaded proof files. Council Mode
   copies base64 question packets per companion, imports their answers, and
   copies a consolidated answer with attribution.
-- Daily Check-ins: summary, check-in form, and journal entry/readback controls.
+- Daily Check-ins: summary, check-in form, What Mattered Today, Royal Inspection,
+  Daily Minimums, and journal entry/readback controls.
 - Fitness: Recruit Rebuild command center with orders, editable workout groups,
   an exercise database, group exercise prescriptions, mobility/cardio/strength
   logs, progress notes, challenges, body metrics, and history.
@@ -57,7 +63,8 @@ python Companion_Web.py --host 127.0.0.1 --port 8787
   spiritual work, companion directives, or general reminders. Shopping-list
   needs do not generate calendar items. Generated labels include category,
   title, and source ID; double-click a calendar item to open its saved event or
-  source surface.
+  source surface. Upcoming calendar items can be previewed, copied, or
+  downloaded as a plain-text export.
 - Profile Settings: signed-in display-name and password changes.
 - Admin: Array-only profile approval, activation, access toggles, password
   resets, and session timeout configuration.
@@ -95,7 +102,8 @@ and reload Apache.
   decoded content; then copy the updated base64 packet.
 - Integrity checks validate JSON control files, packet schema basics, duplicate
   memory IDs, active/archive status markers, category names, and missing proof or
-  project asset files.
+  project asset files. Copy Health Report exports safe diagnostics and counts
+  without memory contents or secrets.
 
 ## Data Files
 

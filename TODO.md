@@ -1,4 +1,4 @@
-### TODO Version 0.1.18.0
+### TODO Version 0.1.19.0
 
 * Priority importance is least to greatest.
 * Check the `Version-*.md` file, and follow the pattern. Update the filename based on that guidance. For the foreseeable future nothing will change with the first two segments.
@@ -17,7 +17,6 @@
 ## Priority 2
 
 ## Priority 3
-- Export command for the calendar to either download or copy/paste to share upcoming things
 
 ## Priority 4
 

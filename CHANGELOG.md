@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.1.19.0 - 2026-07-12
+
+### Added
+
+- Added Array-only Eve Console as an aggregator for Royal Inspections, Daily Minimums, Eve-related directives, proof/report metadata, stale work, and Eve memory candidates without creating a separate data silo.
+- Added Daily Check-ins quick-mode forms for What Mattered Today, Royal Inspection, and Daily Minimums, with plain-text copy exports and directive/memory-command helpers.
+- Added a Garden / Realm Status dashboard card and stale project/chore detector.
+- Added Calendar export preview, copy, and download for upcoming items with range, count, category, and generated-item handling.
+- Added a safe copyable System Health Report that summarizes diagnostics without exposing memory contents.
+- Added Council Verdict fields for agreement points, disagreement points, and final recommendation.
+
+### Changed
+
+- Daily check-in cards now surface saved reflection, Royal Inspection, and Daily Minimums details when present.
+- Bumped the release file to `Version-0.1.19.0.md`.
+
 ## 0.1.18.0 - 2026-07-12
 
 ### Added

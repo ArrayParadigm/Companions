@@ -82,6 +82,9 @@ control_data/daily_checkins.json
 
 Each check-in uses nested `body`, `mind`, `spirit`, `work`, and `relationships`
 sections so the dashboard can render daily state, history, and category summaries.
+Quick-mode entries can also include `reflection`, `royal_inspection`, and
+`daily_minimums` objects. Eve Console reads those objects from Daily Check-ins
+instead of copying them into a separate store.
 The `spirit` section only records the Daily Check-ins reading-complete
 confirmation. Fitness detail is entered from the Fitness tab; Daily Check-ins
 only stores a fitness-complete checkbox. Detailed Bible chapter progress is
@@ -148,6 +151,24 @@ recurrences, Spiritual daily reading, and Array-only Directive due dates. Diet
 shopping needs are intentionally excluded because there is no set shopping day.
 Generated labels show category, title, and source ID. Double-click a calendar
 item to open its saved event or relevant source surface.
+Use Calendar Export to preview, copy, or download upcoming items as plain text
+with date range, count, category totals, and optional generated items.
+
+## Eve Console And Safe Exports
+
+Eve Console is Array-only and aggregates existing data:
+
+- Royal Inspections and Daily Minimums from Daily Check-ins.
+- Royal Decrees, Tiny Tyrant Orders, Princess Campaign items, and Eve-related
+  directives from Directive Ledger records matching `issuer=Eve`,
+  `type=princess_campaign` or `type=tiny_tyrant`, or tags such as `eve`,
+  `royal`, `royal_inspection`, `royal_decree`, `daily_minimum`, or `princess`.
+- Recent proof/report metadata from Proof Vault.
+- Stale projects and chores from project/chore timestamps and due dates.
+- Eve memory candidates as copyable command text, not automatically applied.
+
+Copy Health Report exports safe diagnostics: counts, stale-work summaries, and
+integrity issues. It does not include decoded memory contents.
 
 ## Fitness Data
 

@@ -45,7 +45,12 @@ http://127.0.0.1:8787
   no longer a separate navigation tab. After login, Dashboard keeps a Session
   panel visible with the signed-in profile and server-side category access.
   Signed-out users see only the Dashboard auth controls, not protected category
-  content.
+  content. The Dashboard also includes Garden / Realm Status, stale-work, and
+  safe health-report controls for Array.
+- Eve Console is an Array-only aggregator, not a new data silo. It gathers Royal
+  Inspections and Daily Minimums from Daily Check-ins, Eve-related directives
+  from Directive Ledger filters, recent proof/report metadata, stale work, and
+  Eve memory candidates.
 - New companions can be created from the companion tab bar with a popup; this
   writes a live server memory packet and updates the live companion registry.
 - `Copy Handoff` gives a companion plain instructions plus its encoded packet.
@@ -68,7 +73,9 @@ http://127.0.0.1:8787
   missing issuer directive memories and keeps them active until the companion
   archives the directive memory.
 - Proof Vault stores proof metadata and uploaded proof files under `proof_vault/`, with download links for uploaded files.
-- Daily Check-ins read the existing emotional journal, productivity tracker, and fitness tracker JSON files, with summary, check-in, and journal tabs.
+- Daily Check-ins read the existing emotional journal, productivity tracker, and
+  fitness tracker JSON files, with summary, check-in, What Mattered Today,
+  Royal Inspection, Daily Minimums, and journal tabs.
 - The Journal tab can add new journal entries.
 - Journal entries use a clean blank entry box and can be reopened from the previous-entry list.
 - Fitness is a main navigation category with the persisted Recruit Rebuild
@@ -88,7 +95,8 @@ http://127.0.0.1:8787
   events. Diet shopping-list needs do not appear on the calendar, and
   generated labels include source category, due title, and source ID.
   Double-clicking a calendar item opens the saved event or relevant source
-  surface.
+  surface. Upcoming items can be previewed, copied, or downloaded as a
+  plain-text Calendar Export.
 - Diet inventory tracks on-hand, par, reorder thresholds, container quantity,
   and cost per container; items can be deleted after confirmation, and the
   shopping list is generated from the remaining low inventory.
@@ -104,7 +112,8 @@ http://127.0.0.1:8787
 - Directive Ledger, Proof Vault, and Council Mode are companion tabs under the
   Companion workflow. Council Mode has a shared question box, per-companion
   base64 Copy Question buttons, per-companion answer imports, and a consolidated
-  answer copy button with attribution.
+  answer copy button with attribution, plus a Council Verdict flow for agreement
+  points, disagreement points, and final recommendation.
 
 ## Companion Update Commands
 

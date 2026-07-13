@@ -1,5 +1,18 @@
 # Test Log
 
+## 2026-07-12 - 0.1.19.0 TODO Sprint
+
+| Severity | Area | Result | Notes |
+| --- | --- | --- | --- |
+| Info | Static compile | Pass | `python -m py_compile Companion_Web.py Memory_Manager.py` passed. |
+| Info | Compileall | Pass | `python -m compileall -q Companion_Web.py Memory_Manager.py` passed. |
+| Info | Isolated Eve/Daily smoke | Pass | Temporary control data verified normal check-ins do not gain blank Royal Inspection/Daily Minimums records, Royal Inspection saves devotions, Daily Minimums saves score fields, Eve directives filter into Eve Console, and Eve memory candidates are generated from check-ins. |
+| Info | Stale work and exports | Pass | Temporary project/chore due dates appeared in stale-work detection; Calendar export preview/text included upcoming items; safe System Health Report produced counts and diagnostics text. |
+| Info | JSON validation | Pass | `companion-files.json`, `control_data/*.json`, and `tracker_data/*.json` parse successfully across 15 files. |
+| Info | Copyover check | Pass | `cmd /c copyover.bat --check` detected `D:\000_Files\002_Projects\EVE\MS\Companions-1`, version `0.1.19.0`, and copied no files. |
+| Info | Whitespace gate | Pass | `git diff --check` reported no whitespace errors; Git only warned that edited text files will be normalized from LF to CRLF when touched. |
+| Low | Browser testing | Not run | Per repo TODO guidance, no browser-based test was run; UI behavior was covered with static markers and isolated function/API-adjacent smoke checks. |
+
 ## 2026-07-12 - 0.1.18.0 TODO Sprint
 
 | Severity | Area | Result | Notes |
