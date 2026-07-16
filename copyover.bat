@@ -32,6 +32,13 @@ if not exist "%src%\Memory_Manager.py" (
     exit /b 1
 )
 
+if not exist "%src%\Companion_Store.py" (
+    echo ERROR: Companion_Store.py was not found in:
+    echo   %src%
+    pause
+    exit /b 1
+)
+
 if not exist "%src%\kjv.txt" (
     echo ERROR: kjv.txt was not found in:
     echo   %src%
@@ -102,7 +109,7 @@ if exist "%ziptemp%" del /Q "%ziptemp%"
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "$src = '%src%';" ^
   "$zip = '%ziptemp%';" ^
-  "$excludeDirs = @('\.git\','\bkup\','\deploy_package\','\__pycache__\','\.pytest_cache\','\.mypy_cache\','\.ruff_cache\','\.venv\','\venv\','\env\','\htmlcov\','\build\','\dist\','\proof_vault\','\project_assets\');" ^
+  "$excludeDirs = @('\.git\','\app_data\','\bkup\','\deploy_package\','\__pycache__\','\.pytest_cache\','\.mypy_cache\','\.ruff_cache\','\.venv\','\venv\','\env\','\htmlcov\','\build\','\dist\','\proof_vault\','\project_assets\');" ^
   "$excludeExt = @('.pyc','.pyo','.log','.class','.jar','.zip','.7z','.tar','.gz','.tmp','.bak','.swp','.swo');" ^
   "$excludeNames = @('Thumbs.db','Desktop.ini','.coverage');" ^
   "$files = Get-ChildItem -LiteralPath $src -Recurse -File -Force | Where-Object { $p = $_.FullName.Substring($src.Length); $ext = $_.Extension.ToLowerInvariant(); -not ($excludeDirs | Where-Object { $p.StartsWith($_, [System.StringComparison]::OrdinalIgnoreCase) }) -and -not ($excludeExt -contains $ext) -and -not ($excludeNames -contains $_.Name) };" ^
@@ -128,6 +135,7 @@ echo Copying deployable web console files...
 
 copy /Y "%src%\Companion_Web.py" "%current%\Companion_Web.py" >nul
 copy /Y "%src%\Memory_Manager.py" "%current%\Memory_Manager.py" >nul
+copy /Y "%src%\Companion_Store.py" "%current%\Companion_Store.py" >nul
 copy /Y "%src%\kjv.txt" "%current%\kjv.txt" >nul
 if errorlevel 1 goto :copy_error
 if not exist "%current%\kjv.txt" (

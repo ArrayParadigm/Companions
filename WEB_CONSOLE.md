@@ -57,6 +57,21 @@ http://127.0.0.1:8787
 - `Copy Packet` gives only the raw base64 packet, excluding archived memories.
 - `Download Packet` saves the raw base64 packet as a `.txt` file, also
   excluding archived memories.
+- `Download Companion Source Rollback` is an Array-only export of the retained
+  pre-SQL packet files and `companion-files.json`. It does not reflect later
+  SQLite writes. The ZIP includes a version/timestamp/size/SHA256 manifest while
+  excluding users, sessions, passwords, proof uploads, project assets, and
+  unrelated control data.
+- `Download Companion DB Backup` uses SQLite's online backup API and bundles
+  the database with a version/timestamp/size/SHA256 manifest.
+- `Download Full Console Backup (Private)` includes the companion DB, profiles
+  and password hashes, control and tracker data, directives, calendar, fitness,
+  projects, chores, diet, the companion registry/rollback packets, proof
+  metadata/uploads, and project assets. Sessions, caches, logs, generated
+  backups, and transfer packages stay excluded.
+- Restore preview validates ZIP paths, manifest membership, sizes, hashes, and
+  SQLite integrity. Restore requires exact `RESTORE` confirmation and first
+  writes a timestamped full-console restore point under `bkup/restore_points/`.
 - `Apply Commands` accepts companion memory and directive command batches.
   `Preview Commands` reports add/update/archive/unarchive/resave/delete and
   directive counts before apply without displaying decoded memory text.
@@ -86,7 +101,8 @@ http://127.0.0.1:8787
   Exercise Library is a searchable/tag-filtered JSON-backed exercise database
   with detail popup, add/edit/delete, and add-to-group controls. The `0.1.20.0`
   fitness seed migrates the Array fitness JSON to the current Recruit Rebuild
-  PT plan when Fitness data is loaded.
+  PT plan when Fitness data is loaded. Today's Orders shows only the current
+  weekday's group and persists each checked exercise by date and group.
 - Spiritual owns daily reading, extra reading, persistent Bible chapter progress, and prayer categories for gratitude, requests, repentance, service, and closeness.
 - Projects has Home Maintenance, Vehicle Maintenance, and Tech Projects tabs
   plus category, status, and sort controls; Chores is a project category, not a
@@ -159,6 +175,8 @@ Archive behavior:
 ## Data Files
 
 - Companion list: `companion-files.json`
+- Companion database: `app_data/companion_memories.sqlite3` (source of truth;
+  the configured packet files remain unchanged rollback/fallback material)
 - Local profiles: `control_data/users.json`
 - Admin settings: `control_data/settings.json`
 - Fitness command center: `control_data/fitness.json`
@@ -175,9 +193,10 @@ Archive behavior:
 - KJV source: `kjv.txt`
 - Bible chapter reading progress: `control_data/reading_progress.json`
 
-The companion registry, memory packets, directive data, and proof uploads are
-live server data. The deploy package does not include them, and Linux sync
-excludes them so code deploys do not overwrite newly added website data.
+The companion database, rollback packet files, registry, directive data, and
+proof uploads are live server data. The deploy package does not include them,
+and Linux sync preserves `app_data/`, `control_data/`, `proof_vault/`, and
+`project_assets/` so code deploys do not overwrite server data.
 
 ## Deployment Note
 

@@ -7,6 +7,12 @@ import shutil
 from datetime import datetime
 from pathlib import Path
 
+from Companion_Store import (
+    integrity_comparison as database_integrity_comparison,
+    load_payload as load_database_payload,
+    save_payload as save_database_payload,
+)
+
 tk = None
 messagebox = None
 scrolledtext = None
@@ -193,6 +199,7 @@ def create_companion(name, filename=None):
     path.write_text(encode_payload(payload), encoding="ascii")
     save_companion_files(companion_files)
     reload_companion_files()
+    save_database_payload(clean_name, path, payload, reason="create-companion")
     return clean_name, path
 
 
@@ -329,7 +336,7 @@ def log_operation(payload, operation, detail):
     payload.setdefault("metadata", {})["updated_at"] = now_stamp()
 
 
-def load_payload(companion):
+def load_payload_from_packet_file(companion):
     path = COMPANION_FILES[companion]
     if not path.exists():
         return make_template(companion)
@@ -348,11 +355,16 @@ def load_payload(companion):
     return payload
 
 
+def load_payload(companion):
+    return load_database_payload(companion, COMPANION_FILES, load_payload_from_packet_file)
+
+
 def save_payload(companion, payload):
-    path = COMPANION_FILES[companion]
-    backup_path = backup_file(path)
-    path.write_text(encode_payload(payload), encoding="ascii")
-    return backup_path
+    return save_database_payload(companion, COMPANION_FILES[companion], payload)
+
+
+def companion_database_integrity():
+    return database_integrity_comparison(COMPANION_FILES, load_payload_from_packet_file)
 
 
 def ensure_payload_shape(payload, companion):

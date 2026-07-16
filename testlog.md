@@ -1,5 +1,40 @@
 # Test Log
 
+## 2026-07-16 - 0.1.22.0 SQLite, Fitness Checklist, Backup, And Restore Sprint
+
+| Severity | Area | Result | Notes |
+| --- | --- | --- | --- |
+| Info | Static compile | Pass | `python -m py_compile Companion_Store.py Memory_Manager.py Companion_Web.py` passed. |
+| Info | Compileall | Pass | `python -m compileall -q Companion_Store.py Memory_Manager.py Companion_Web.py` passed. |
+| Info | SQLite import/integrity | Pass | One-time import created all 6 required tables; all 4 companions matched source active/archive counts and ID sets, and import metadata retained the baseline comparison. |
+| Info | SQLite operation smoke | Pass | Isolated DB execution passed add/apply, archive, unarchive, resave, delete, reload, archive-free export, repeated automatic safety backups, and unchanged source packet SHA256. Packet download and handoff use that verified DB load/export path. |
+| Info | Fitness current-day smoke | Pass | Isolated Thursday data exposed only Recovery Mobility and its matching order, persisted a checked/unchecked exercise by date/group, and rejected an off-day group update. |
+| Info | Backup/restore function smoke | Pass | SQLite online backup, DB ZIP, private full-console ZIP, manifest membership/size/SHA256 validation, excluded cache/log/backup paths, SQLite integrity validation, and exact confirmation enforcement passed. |
+| Info | Confirmed restore smoke | Pass | A current Companion DB Backup restored successfully after creation of a timestamped full-console restore point; the restored DB passed integrity and packet-import baseline checks. |
+| Info | Backup/restore API smoke | Pass | Temporary authenticated server allowed both backup downloads and restore preview for Array, returned `403` for a non-owner, and returned `400` for invalid restore confirmation. |
+| Info | JSON validation | Pass | `companion-files.json`, `control_data/*.json`, and `tracker_data/*.json` parse successfully across 15 files. |
+| Info | Deploy packaging | Pass | `copyover.bat --check` required `Companion_Store.py`, detected version `0.1.22.0`, and copied no files; Linux sync validation requires the module and preserves server `app_data/`. |
+| Info | Linux script syntax | Pass | Git Bash `bash -n` passed for `linux_setup_subdomain.sh` and `linux_sync_from_local.sh`. |
+| Info | Whitespace gate | Pass | `git diff --check` reported no whitespace errors; Git only warned that edited text files will be normalized from LF to CRLF when touched. |
+| Medium | Restore portability | Fixed | Initial smoke staged the replacement DB under the default app-data directory and failed across volumes; restore now stages beside the actual target before `os.replace`. |
+| Medium | Deploy dependency | Fixed | Closeout review found the new SQLite module missing from deploy packaging; Windows copy and Linux source/target validation now include it, and Linux sync preserves the live DB directory. |
+| Low | Fitness seed naming | Fixed | Thursday's group is `Recovery Mobility` while its order adds `+ Check-In`; current-day order matching now accepts the scheduled group-name prefix. |
+| Low | Browser testing | Not run | Per repo TODO guidance, no browser-based test was run; UI wiring was covered by static review plus function and authenticated API smokes. |
+
+## 2026-07-16 - 0.1.21.0 Companion Backup Sprint
+
+| Severity | Area | Result | Notes |
+| --- | --- | --- | --- |
+| Info | Static compile | Pass | `python -m py_compile Companion_Web.py Memory_Manager.py` passed. |
+| Info | Compileall | Pass | `python -m compileall -q Companion_Web.py Memory_Manager.py` passed. |
+| Info | Backup archive integrity | Pass | Direct archive smoke built a timestamped ZIP containing `companion-files.json`, all 4 configured source packet files, and `manifest.json`; every recorded byte size and SHA256 hash matched. |
+| Info | Backup privacy scope | Pass | Archive membership excluded users, sessions, passwords, proof uploads, project assets, tracker data, and unrelated control data; source packet files preserve active and archived memories. |
+| Info | Authenticated API smoke | Pass | Temporary local server returned `401` without a session and returned an attachment ZIP for an Array session; its manifest reported app version `0.1.21.0` and 5 source files. |
+| Info | JSON validation | Pass | `companion-files.json`, `control_data/*.json`, and `tracker_data/*.json` parse successfully across 15 files. |
+| Info | Copyover check | Pass | `cmd /c copyover.bat --check` detected `D:\000_Files\002_Projects\EVE\MS\Companions-1`, version `0.1.21.0`, and copied no files. |
+| Info | Whitespace gate | Pass | `git diff --check` reported no whitespace errors; Git only warned that edited text files will be normalized from LF to CRLF when touched. |
+| Low | Browser testing | Not run | Per repo TODO guidance, no browser-based test was run; UI wiring was covered with static review and the authenticated endpoint smoke. |
+
 ## 2026-07-12 - 0.1.20.0 Fitness And Royal Inspection Sprint
 
 | Severity | Area | Result | Notes |

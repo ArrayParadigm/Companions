@@ -41,7 +41,7 @@ validate_source() {
     exit 1
   fi
 
-  for required in Companion_Web.py Memory_Manager.py kjv.txt; do
+  for required in Companion_Web.py Memory_Manager.py Companion_Store.py kjv.txt; do
     if [[ ! -f "${SOURCE_DIR}/${required}" ]]; then
       echo "Source is missing required file: ${required}"
       exit 1
@@ -69,7 +69,7 @@ sync_files() {
     --exclude 'companion-files.json'
   )
   if [[ "${PRESERVE_SERVER_DATA}" == "1" ]]; then
-    excludes+=(--exclude control_data --exclude proof_vault --exclude project_assets)
+    excludes+=(--exclude app_data --exclude control_data --exclude proof_vault --exclude project_assets)
   fi
 
   rsync -a --delete "${excludes[@]}" "${SOURCE_DIR}/" "${APP_DIR}/"
@@ -78,7 +78,7 @@ sync_files() {
 }
 
 validate_target() {
-  for required in Companion_Web.py Memory_Manager.py kjv.txt; do
+  for required in Companion_Web.py Memory_Manager.py Companion_Store.py kjv.txt; do
     if [[ ! -f "${APP_DIR}/${required}" ]]; then
       echo "Target is missing required file after sync: ${required}"
       exit 1

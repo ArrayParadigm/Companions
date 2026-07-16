@@ -52,7 +52,8 @@ python Companion_Web.py --host 127.0.0.1 --port 8787
   strength logs, progress notes, challenges, body metrics, and history. The
   `0.1.20.0` app migration seeds `control_data/fitness.json` with the current
   Recruit Rebuild PT plan, exercises, and groups the first time Fitness data is
-  loaded.
+  loaded. Today's Orders shows only the current weekday's scheduled group and
+  persists its exercise checklist for that date.
 - Spiritual: summary, daily KJV reading, extra Bible chapter reading, and prayer
   category review.
 - Projects: home, vehicle, and tech project todo management with status/sort
@@ -88,6 +89,21 @@ and reload Apache.
   archived memories.
 - Download Packet saves the current encoded packet as a `.txt` file with the
   same archive-free export behavior as Copy Packet.
+- Download Companion Source Rollback is Array-only and saves a timestamped ZIP
+  of the configured pre-SQL source files plus `companion-files.json`. It is
+  rollback material and does not reflect later SQLite writes. Its
+  `manifest.json` records the app version, timestamp, file sizes, and SHA256
+  hashes; auth/profile data, sessions, proofs, project assets, and other control
+  data are excluded.
+- Download Companion DB Backup uses SQLite's online backup API and packages the
+  database with a size/SHA256 manifest. Download Full Console Backup is
+  explicitly private because it adds profiles/password hashes, control and
+  tracker data, the companion registry/rollback packets, proof metadata/uploads,
+  and project assets; sessions, caches, logs, and generated backup/transfer
+  archives are excluded.
+- Restore Backup first previews and validates ZIP paths, membership, hashes,
+  sizes, and SQLite integrity. Restore requires typing `RESTORE` exactly and
+  creates a timestamped full-console restore point before replacing data.
 - Copy Handoff copies the companion instructions plus the base64 packet for use
   in a companion conversation.
 - Add Memory writes one active memory into the selected companion packet.
@@ -114,7 +130,11 @@ and reload Apache.
 - `Companion_Web.py` runs the browser console.
 - `Memory_Manager.py` owns opaque base64 companion packet encoding and command
   application.
-- `companion-files.json` lists local companion packet files.
+- `Companion_Store.py` owns SQLite import, normalized persistence, integrity,
+  safety-backup, and database-restore behavior.
+- `app_data/companion_memories.sqlite3` is the companion-memory source of truth.
+- `companion-files.json` and its local packet files seed the one-time SQLite
+  import and remain untouched rollback/fallback material after migration.
 - `control_data/users.json` stores local profile records. `Array` is the owner
   profile with companion access.
 - `control_data/settings.json` stores admin-controlled console settings such as

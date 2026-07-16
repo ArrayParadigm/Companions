@@ -39,7 +39,7 @@ create_user_and_dirs() {
     useradd --system --create-home --home-dir "${APP_DIR}" --shell /usr/sbin/nologin "${APP_USER}"
   fi
 
-  mkdir -p "${APP_DIR}" "${APP_DIR}/control_data" "${APP_DIR}/proof_vault"
+  mkdir -p "${APP_DIR}" "${APP_DIR}/app_data" "${APP_DIR}/control_data" "${APP_DIR}/proof_vault" "${APP_DIR}/project_assets"
   mkdir -p "${ACME_ROOT}/.well-known/acme-challenge"
   chown -R "${APP_USER}:${APP_USER}" "${APP_DIR}"
   chown -R www-data:www-data "${ACME_ROOT}"

@@ -41,6 +41,8 @@ dist/
 proof_vault/
 project_assets/
 control_data/users/
+app_data/*.sqlite3
+app_data/*.sqlite3-*
 
 # Editor and OS noise
 .vscode/

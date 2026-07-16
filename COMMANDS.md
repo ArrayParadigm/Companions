@@ -23,6 +23,22 @@ Copy Packet, Download Packet, and Copy Handoff export only active memories.
 Archived memories stay searchable in the local console but are left out of the
 encoded packet handed to a companion.
 
+Download Companion Source Rollback is different from packet handoff/export:
+the Array-only control saves the retained pre-SQL packet files with
+`companion-files.json` and a hashed `manifest.json`. It does not reflect later
+SQLite writes or include console profile/auth and unrelated data.
+
+Companion memory commands now load and save through
+`app_data/companion_memories.sqlite3`. The configured packet files are imported
+once and retained unchanged for rollback. Every database write takes a
+SQLite-safe automatic backup first. Copy Packet, Download Packet, and Copy
+Handoff are generated from SQLite and continue to omit archived memories.
+
+Array can also download a SQLite-safe Companion DB Backup or a private Full
+Console Backup. Restore requires a successful manifest/hash/database preview,
+the exact confirmation text `RESTORE`, and creation of a full-console restore
+point before any data is replaced.
+
 ```text
 add category - memory text | weight=3 | tags=tag1,tag2
 update ID -> replacement memory text

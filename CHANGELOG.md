@@ -1,5 +1,43 @@
 # Changelog
 
+## 0.1.22.0 - 2026-07-16
+
+### Added
+
+- Added SQLite companion-memory storage under `app_data/`, with normalized companions, memories, tags, archive state, packet import metadata, and backup metadata tables.
+- Added a one-time packet importer that preserves the original configured packet files and records source hashes, counts, IDs, and import-integrity results.
+- Added today-only Fitness group checklists with per-date, per-exercise completion state and scheduled-order matching.
+- Added Array-only `Download Companion DB Backup` and `Download Full Console Backup (Private)` controls with manifests, sizes, SHA256 hashes, and explicit privacy scope.
+- Added guarded restore preview and restore controls that validate paths, hashes, sizes, backup format, and SQLite integrity, require exact `RESTORE` confirmation, and create a timestamped full-console restore point first.
+
+### Changed
+
+- SQLite is now the source of truth for companion Add Memory, Apply Commands, archive, unarchive, resave, delete, Copy Packet, Download Packet, and Copy Handoff operations while keeping source packet files as rollback material.
+- Renamed the earlier source-file backup control to `Download Companion Source Rollback` so it is not confused with the current SQLite DB backup.
+- Companion packet/handoff exports continue to omit archived memories, while archive search remains metadata-only and decoded memory content stays out of casual UI surfaces.
+- Companion database writes now create SQLite-safe automatic backups before changes.
+- Bumped the release file to `Version-0.1.22.0.md`.
+
+### Security
+
+- Full-console backups are plainly labeled private because they include local profiles and password hashes; sessions, caches, logs, backup archives, and generated transfer packages remain excluded.
+- Restore uploads are Array-only, size-limited, and reject traversal paths, duplicate names, symbolic links, oversized expansion, and invalid manifests or databases.
+
+## 0.1.21.0 - 2026-07-16
+
+### Added
+
+- Added an Array-only `Download Companion Backup` control that creates a timestamped ZIP of `companion-files.json` and every configured companion source packet, preserving both active and archived memories.
+- Added `manifest.json` backup metadata with the app version, creation timestamp, file names, byte sizes, and SHA256 hashes.
+
+### Security
+
+- Kept companion backups narrowly scoped: profile/auth data, sessions, proof uploads, project assets, tracker data, and unrelated control data are not included.
+
+### Changed
+
+- Bumped the release file to `Version-0.1.21.0.md`.
+
 ## 0.1.20.0 - 2026-07-12
 
 ### Added

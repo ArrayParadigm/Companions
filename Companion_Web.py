@@ -7,6 +7,7 @@ import contextvars
 import copy
 import hashlib
 import hmac
+import io
 import json
 import math
 import mimetypes
@@ -16,6 +17,7 @@ import secrets
 import shutil
 import time
 import uuid
+import zipfile
 from datetime import date, datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -28,11 +30,18 @@ from Memory_Manager import (
     add_memory,
     apply_command_line,
     create_companion,
+    companion_database_integrity,
     encode_payload,
     load_payload,
     packet_summary,
     reload_companion_files,
     save_payload,
+)
+from Companion_Store import (
+    DB_PATH as COMPANION_DB_PATH,
+    restore_database_bytes,
+    sqlite_backup_bytes,
+    validate_database_bytes,
 )
 
 
@@ -61,6 +70,8 @@ PASSWORD_ITERATIONS = 260000
 SESSIONS = {}
 MAX_JSON_BYTES = 512 * 1024
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024
+MAX_BACKUP_UPLOAD_BYTES = 250 * 1024 * 1024
+RESTORE_PREVIEWS = {}
 ALLOWED_PROOF_EXTENSIONS = {".gif", ".jpeg", ".jpg", ".json", ".md", ".pdf", ".png", ".txt", ".webp"}
 ALLOWED_PROJECT_EXTENSIONS = {
     ".csv", ".doc", ".docx", ".gif", ".jpeg", ".jpg", ".json", ".md", ".pdf", ".png",
@@ -609,6 +620,218 @@ READING_PLANS = {
 
 def now_stamp():
     return datetime.now().replace(microsecond=0).isoformat()
+
+
+def app_version():
+    version_files = sorted(APP_DIR.glob("Version-*.md"), key=lambda path: path.stat().st_mtime, reverse=True)
+    if not version_files:
+        return "unknown"
+    return version_files[0].stem.removeprefix("Version-")
+
+
+def companion_backup_archive():
+    """Build an in-memory, companion-only source backup with a hashed manifest."""
+    refresh_companion_registry()
+    sources = [("companion-files.json", APP_DIR / "companion-files.json")]
+    used_names = {"companion-files.json", "manifest.json"}
+    for companion, path in COMPANION_FILES.items():
+        resolved = path.resolve()
+        if not resolved.is_file():
+            raise ValueError(f"Companion source file is missing: {path.name}")
+        archive_name = path.name
+        if archive_name in used_names:
+            raise ValueError(f"Companion backup filename collision: {archive_name}")
+        used_names.add(archive_name)
+        sources.append((archive_name, resolved))
+
+    created_at = now_stamp()
+    file_entries = []
+    file_data = []
+    for archive_name, path in sources:
+        body = path.read_bytes()
+        file_data.append((archive_name, body))
+        file_entries.append({
+            "file": archive_name,
+            "size": len(body),
+            "sha256": hashlib.sha256(body).hexdigest(),
+        })
+
+    manifest = {
+        "format": "companion-source-backup/v1",
+        "app_version": app_version(),
+        "created_at": created_at,
+        "files": file_entries,
+    }
+    output = io.BytesIO()
+    with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        for archive_name, body in file_data:
+            archive.writestr(archive_name, body)
+        archive.writestr("manifest.json", json.dumps(manifest, indent=2, ensure_ascii=False).encode("utf-8"))
+    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    return f"companion-backup-{timestamp}.zip", output.getvalue(), manifest
+
+
+def backup_zip(filename, archive_format, files, privacy):
+    created_at = now_stamp()
+    entries = []
+    output = io.BytesIO()
+    with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED, allowZip64=True) as archive:
+        for archive_name, body in files:
+            clean_name = str(archive_name).replace("\\", "/").lstrip("/")
+            entries.append({
+                "file": clean_name,
+                "size": len(body),
+                "sha256": hashlib.sha256(body).hexdigest(),
+            })
+            archive.writestr(clean_name, body)
+        manifest = {
+            "format": archive_format,
+            "app_version": app_version(),
+            "created_at": created_at,
+            "privacy": privacy,
+            "files": entries,
+        }
+        archive.writestr("manifest.json", json.dumps(manifest, indent=2, ensure_ascii=False).encode("utf-8"))
+    return filename, output.getvalue(), manifest
+
+
+def companion_database_backup_archive():
+    body, _digest = sqlite_backup_bytes(reason="manual-download", backup_type="companion-db-download")
+    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    return backup_zip(
+        f"companion-db-backup-{timestamp}.zip",
+        "companion-db-backup/v1",
+        [("app_data/companion_memories.sqlite3", body)],
+        "Companion memory database only. Does not include console profiles, passwords, sessions, proofs, or unrelated control data.",
+    )
+
+
+def full_console_backup_archive(reason="manual-download"):
+    db_body, _digest = sqlite_backup_bytes(reason=reason, backup_type="full-console")
+    files = [("app_data/companion_memories.sqlite3", db_body)]
+    if (APP_DIR / "companion-files.json").exists():
+        files.append(("companion-files.json", (APP_DIR / "companion-files.json").read_bytes()))
+    for source_path in COMPANION_FILES.values():
+        if source_path.is_file() and is_relative_to(source_path.resolve(), APP_DIR.resolve()):
+            files.append((source_path.name, source_path.read_bytes()))
+    roots = [DATA_DIR, APP_DIR / "tracker_data", PROOF_DIR, PROJECT_ASSET_DIR]
+    seen = {name for name, _body in files}
+    for root in roots:
+        if not root.exists():
+            continue
+        for path in sorted(root.rglob("*")):
+            if not path.is_file() or path.is_symlink():
+                continue
+            archive_name = path.relative_to(APP_DIR).as_posix()
+            if archive_name in seen or any(part in {"__pycache__", "bkup"} for part in Path(archive_name).parts):
+                continue
+            seen.add(archive_name)
+            files.append((archive_name, path.read_bytes()))
+    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    return backup_zip(
+        f"full-console-backup-{timestamp}.zip",
+        "full-console-backup/v1",
+        files,
+        "PRIVATE BACKUP: includes local profile records and password hashes, companion DB, control/tracker data, proof metadata/uploads, and project assets. Sessions, caches, logs, and generated transfer archives are excluded.",
+    )
+
+
+def validate_restore_archive(body):
+    try:
+        archive = zipfile.ZipFile(io.BytesIO(body))
+    except zipfile.BadZipFile as exc:
+        raise ValueError("Backup is not a valid ZIP archive.") from exc
+    with archive:
+        names = archive.namelist()
+        if len(names) != len(set(names)):
+            raise ValueError("Backup contains duplicate file names.")
+        total_uncompressed = 0
+        for info in archive.infolist():
+            name = info.filename
+            parts = Path(name.replace("\\", "/")).parts
+            if not name or name.startswith(("/", "\\")) or ".." in parts:
+                raise ValueError(f"Unsafe backup path: {name}")
+            if (info.external_attr >> 16) & 0o170000 == 0o120000:
+                raise ValueError(f"Backup contains a symbolic link: {name}")
+            total_uncompressed += info.file_size
+            if total_uncompressed > 500 * 1024 * 1024:
+                raise ValueError("Backup expands beyond the 500 MB restore limit.")
+        if "manifest.json" not in names:
+            raise ValueError("Backup is missing manifest.json.")
+        manifest = json.loads(archive.read("manifest.json").decode("utf-8"))
+        if manifest.get("format") not in {"companion-db-backup/v1", "full-console-backup/v1"}:
+            raise ValueError("Backup format is not restorable by this console.")
+        expected_names = {item.get("file") for item in manifest.get("files", [])}
+        actual_names = set(names) - {"manifest.json"}
+        if expected_names != actual_names:
+            raise ValueError("Backup file list does not match its manifest.")
+        for item in manifest.get("files", []):
+            data = archive.read(item["file"])
+            if len(data) != int(item.get("size", -1)):
+                raise ValueError(f"Backup size mismatch: {item['file']}")
+            if hashlib.sha256(data).hexdigest() != item.get("sha256"):
+                raise ValueError(f"Backup hash mismatch: {item['file']}")
+        db_name = "app_data/companion_memories.sqlite3"
+        if db_name not in actual_names:
+            raise ValueError("Backup does not include the companion database.")
+        validate_database_bytes(archive.read(db_name))
+    return manifest
+
+
+def restore_preview(body):
+    for old_token, old_preview in list(RESTORE_PREVIEWS.items()):
+        if time.time() - old_preview.get("created_at", 0) > 15 * 60:
+            RESTORE_PREVIEWS.pop(old_token, None)
+    manifest = validate_restore_archive(body)
+    token = secrets.token_urlsafe(24)
+    RESTORE_PREVIEWS[token] = {"body": body, "manifest": manifest, "created_at": time.time()}
+    return {
+        "token": token,
+        "format": manifest["format"],
+        "app_version": manifest.get("app_version", "unknown"),
+        "created_at": manifest.get("created_at", ""),
+        "privacy": manifest.get("privacy", ""),
+        "file_count": len(manifest.get("files", [])),
+        "total_size": sum(int(item.get("size", 0)) for item in manifest.get("files", [])),
+        "confirmation": "RESTORE",
+        "valid": True,
+    }
+
+
+def restore_from_preview(token, confirmation):
+    preview = RESTORE_PREVIEWS.get(str(token or ""))
+    if not preview or time.time() - preview["created_at"] > 15 * 60:
+        raise ValueError("Restore preview is missing or expired; preview the backup again.")
+    if str(confirmation or "").strip() != "RESTORE":
+        raise ValueError("Restore confirmation must be exactly RESTORE.")
+    body = preview["body"]
+    manifest = validate_restore_archive(body)
+    restore_name, restore_body, _restore_manifest = full_console_backup_archive(reason="pre-restore-point")
+    restore_dir = APP_DIR / "bkup" / "restore_points"
+    restore_dir.mkdir(parents=True, exist_ok=True)
+    restore_path = restore_dir / restore_name
+    restore_path.write_bytes(restore_body)
+    with zipfile.ZipFile(io.BytesIO(body)) as archive:
+        db_body = archive.read("app_data/companion_memories.sqlite3")
+        restore_database_bytes(db_body)
+        if manifest["format"] == "full-console-backup/v1":
+            allowed_roots = ("control_data/", "tracker_data/", "proof_vault/", "project_assets/")
+            for item in manifest.get("files", []):
+                name = item["file"]
+                root_source_file = name == "companion-files.json" or (
+                    "/" not in name and (name.endswith("-memories.md") or name.endswith("_memories.md"))
+                )
+                if not name.startswith(allowed_roots) and not root_source_file:
+                    continue
+                target = (APP_DIR / Path(name)).resolve()
+                if not is_relative_to(target, APP_DIR.resolve()):
+                    raise ValueError(f"Unsafe restore target: {name}")
+                target.parent.mkdir(parents=True, exist_ok=True)
+                temp_path = target.with_name(f".{target.name}.restore-{secrets.token_hex(4)}")
+                temp_path.write_bytes(archive.read(name))
+                os.replace(temp_path, target)
+    RESTORE_PREVIEWS.pop(token, None)
+    return {"restored_format": manifest["format"], "restore_point": restore_path.name}
 
 
 def ensure_data_files():
@@ -1362,6 +1585,7 @@ def default_fitness_store():
         "workout_plan": default_workout_plan(),
         "exercise_library": default_fitness_exercises(),
         "exercise_groups": default_fitness_groups(),
+        "daily_group_checklists": {},
         "next_exercise_number": 15,
         "next_group_number": 7,
         "readiness": [],
@@ -1417,6 +1641,9 @@ def fitness_store():
     if normalize_fitness_exercises(store):
         changed = True
     if normalize_fitness_groups(store):
+        changed = True
+    if not isinstance(store.get("daily_group_checklists"), dict):
+        store["daily_group_checklists"] = {}
         changed = True
     if changed:
         write_json(profile_data_file("fitness.json"), store)
@@ -2103,7 +2330,65 @@ def fitness_summary(store=None):
 
 def fitness_state():
     store = fitness_store()
-    return {**store, "summary": fitness_summary(store)}
+    today = datetime.now()
+    date_key = today.strftime("%Y-%m-%d")
+    day_name = today.strftime("%A")
+    exercise_map = {item.get("id"): item for item in store.get("exercise_library", [])}
+    completions = store.get("daily_group_checklists", {}).get(date_key, {})
+    today_groups = []
+    for group in store.get("exercise_groups", []):
+        if str(group.get("schedule_day", "")).strip().lower() != day_name.lower():
+            continue
+        completed_ids = set(completions.get(group.get("id"), []))
+        items = []
+        for item in group.get("items", []):
+            exercise = exercise_map.get(item.get("exercise_id"), {})
+            items.append({
+                **item,
+                "exercise_name": exercise.get("name", item.get("exercise_id", "Exercise")),
+                "format": exercise.get("format", ""),
+                "completed": item.get("id") in completed_ids,
+            })
+        today_groups.append({**group, "items": items, "completed_count": len(completed_ids & {item.get('id') for item in group.get('items', [])})})
+    group_names = {group.get("name", "").strip().lower() for group in today_groups}
+    today_orders = [
+        order for order in store.get("orders", [])
+        if str(order.get("due_date", "")).strip() == date_key
+        or (
+            not str(order.get("due_date", "")).strip()
+            and any(str(order.get("title", "")).strip().lower().startswith(name) for name in group_names)
+        )
+    ]
+    return {
+        **store,
+        "summary": fitness_summary(store),
+        "today": {"date": date_key, "day": day_name, "groups": today_groups},
+        "today_orders": today_orders,
+    }
+
+
+def update_fitness_today_checklist(group_id, item_id, completed):
+    store = fitness_store()
+    today = datetime.now()
+    date_key = today.strftime("%Y-%m-%d")
+    day_name = today.strftime("%A")
+    group = next((item for item in store.get("exercise_groups", []) if item.get("id") == group_id), None)
+    if not group:
+        raise ValueError(f"Fitness group not found: {group_id}")
+    if str(group.get("schedule_day", "")).strip().lower() != day_name.lower():
+        raise ValueError(f"{group.get('name', group_id)} is not scheduled for {day_name}.")
+    if item_id not in {item.get("id") for item in group.get("items", [])}:
+        raise ValueError(f"Fitness group item not found: {item_id}")
+    daily = store.setdefault("daily_group_checklists", {})
+    by_group = daily.setdefault(date_key, {})
+    checked = set(by_group.get(group_id, []))
+    if clean_bool(completed):
+        checked.add(item_id)
+    else:
+        checked.discard(item_id)
+    by_group[group_id] = sorted(checked)
+    write_fitness_store(store)
+    return fitness_state()["today"]
 
 
 def write_fitness_store(store):
@@ -3438,6 +3723,19 @@ def integrity_report():
             issues.append({"severity": "High", "area": path.name, "message": str(exc)})
     for companion in COMPANION_FILES:
         issues.extend(validate_companion_payload(companion))
+    try:
+        for comparison in companion_database_integrity():
+            if not comparison.get("matches"):
+                issues.append({
+                    "severity": "High",
+                    "area": f"{comparison['companion']} SQLite migration",
+                    "message": (
+                        f"Source/DB mismatch: active {comparison['source_active']}/{comparison['database_active']}, "
+                        f"archive {comparison['source_archive']}/{comparison['database_archive']}."
+                    ),
+                })
+    except Exception as exc:
+        issues.append({"severity": "High", "area": "Companion SQLite database", "message": str(exc)})
     for proof in proof_store().get("proof", []):
         proof_path = proof.get("path")
         if proof_path and not (APP_DIR / proof_path).exists():
@@ -4558,6 +4856,16 @@ INDEX_HTML = r"""<!doctype html>
             <button class="inline primary" onclick="copyPacket()">Copy Packet</button>
             <button class="inline primary" onclick="downloadPacket()">Download Packet</button>
             <button class="inline primary" onclick="copyHandoff()">Copy Handoff</button>
+            <button class="inline" onclick="downloadCompanionBackup()">Download Companion Source Rollback</button>
+            <button class="inline" onclick="downloadServerBackup('/api/backups/companion-db')">Download Companion DB Backup</button>
+            <button class="inline" onclick="downloadServerBackup('/api/backups/full-console')">Download Full Console Backup (Private)</button>
+          </div>
+          <div class="detail-box" style="margin-top:10px;">
+            <strong>Restore backup</strong>
+            <p class="muted">Preview validates the manifest, hashes, and SQLite database. Restore requires typing RESTORE and first creates a timestamped full-console restore point.</p>
+            <input id="restoreBackupFile" type="file" accept=".zip,application/zip">
+            <button class="inline" onclick="previewRestoreBackup()">Preview Restore</button>
+            <div id="restoreBackupPreview" class="muted"></div>
           </div>
           <label>Encoded packet</label>
           <textarea id="packetBox" class="packet" readonly></textarea>
@@ -6123,6 +6431,79 @@ INDEX_HTML = r"""<!doctype html>
       setStatus(`Downloaded ${selectedCompanion} packet.`);
     }
 
+    async function downloadCompanionBackup() {
+      const res = await fetch('/api/companion-backup');
+      if (!res.ok) {
+        await handleResponse(res, false);
+        return;
+      }
+      const blob = await res.blob();
+      const disposition = res.headers.get('Content-Disposition') || '';
+      const match = disposition.match(/filename="([^"]+)"/);
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = match ? match[1] : 'companion-backup.zip';
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      setStatus('Downloaded legacy companion source rollback backup.');
+    }
+
+    async function downloadServerBackup(endpoint) {
+      const res = await fetch(endpoint);
+      if (!res.ok) {
+        await handleResponse(res, false);
+        return;
+      }
+      const blob = await res.blob();
+      const disposition = res.headers.get('Content-Disposition') || '';
+      const match = disposition.match(/filename="([^"]+)"/);
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = match ? match[1] : 'console-backup.zip';
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      setStatus(`Downloaded ${link.download}.`);
+    }
+
+    let restorePreviewToken = '';
+
+    async function previewRestoreBackup() {
+      const file = document.getElementById('restoreBackupFile').files[0];
+      if (!file) {
+        setStatus('Choose a backup ZIP before previewing restore.');
+        return;
+      }
+      const res = await fetch('/api/backups/restore/preview', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/zip' },
+        body: file,
+      });
+      const data = await handleResponse(res, false);
+      restorePreviewToken = data.token;
+      document.getElementById('restoreBackupPreview').innerHTML = `<strong>Valid ${escapeHtml(data.format)}</strong><br>${escapeHtml(data.file_count)} files / ${escapeHtml(data.total_size)} bytes / app ${escapeHtml(data.app_version)}<br>${escapeHtml(data.privacy)}<br><label>Type RESTORE</label><input id="restoreConfirmation"><button class="inline danger" onclick="confirmRestoreBackup()">Restore Validated Backup</button>`;
+      setStatus('Backup preview passed. Review the scope before restoring.');
+    }
+
+    async function confirmRestoreBackup() {
+      const confirmation = document.getElementById('restoreConfirmation').value;
+      const res = await fetch('/api/backups/restore', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: restorePreviewToken, confirmation }),
+      });
+      const data = await handleResponse(res, false);
+      restorePreviewToken = '';
+      document.getElementById('restoreBackupPreview').textContent = `Restored ${data.restored_format}. Safety point: ${data.restore_point}`;
+      setStatus('Backup restored. Reloading console state.');
+      await loadState();
+    }
+
     async function copyHandoff() {
       const res = await fetch(`/api/companion/${encodeURIComponent(selectedCompanion)}/handoff`);
       const data = await handleResponse(res, false);
@@ -7046,7 +7427,16 @@ INDEX_HTML = r"""<!doctype html>
         <div class="panel"><h3>Today's Directive</h3><div class="metric">${escapeHtml(summary.todays_directive || '')}</div><p class="muted">${escapeHtml(summary.evie_note || '')}</p></div>
         <div class="panel"><h3>Open Orders</h3><div class="metric">${escapeHtml(summary.open_orders || 0)}</div><p class="muted">History ${escapeHtml(summary.history_count || 0)}</p></div>
       </div>`;
-      document.getElementById('fitnessOrders').innerHTML = (fitness.orders || []).map(order => `<div class="todo-row"><strong>${escapeHtml(order.title)}</strong> <span class="pill">${escapeHtml(order.status || 'open')}</span><p class="muted">${escapeHtml(order.details || '')}</p><button class="inline primary" onclick="updateFitnessOrder('${escapeJs(order.id)}','done')">Mark Done</button> <button class="inline" onclick="updateFitnessOrder('${escapeJs(order.id)}','snoozed')">Snooze</button> <button class="inline" onclick="rescheduleFitnessOrder('${escapeJs(order.id)}')">Reschedule</button> <button class="inline" onclick="skipFitnessOrder('${escapeJs(order.id)}')">Skip with Reason</button></div>`).join('') || emptyState('No fitness orders yet.', 'Orders and rebuild tasks will appear here.');
+      const today = fitness.today || {};
+      const groupChecklists = (today.groups || []).map(group => {
+        const items = (group.items || []).map(item => {
+          const prescription = [`${item.sets || 0} sets`, item.reps ? `${item.reps} reps` : '', item.duration_seconds ? `${item.duration_seconds}s` : '', item.distance || ''].filter(Boolean).join(' / ');
+          return `<label class="todo-row"><input type="checkbox" ${item.completed ? 'checked' : ''} onchange="updateFitnessChecklist('${escapeJs(group.id)}','${escapeJs(item.id)}',this.checked)"> <strong>${escapeHtml(item.exercise_name)}</strong><br><span class="muted">${escapeHtml(prescription)}${item.notes ? ` — ${escapeHtml(item.notes)}` : ''}</span></label>`;
+        }).join('');
+        return `<div class="panel"><h3>${escapeHtml(group.name)} <span class="pill">${escapeHtml(group.completed_count || 0)}/${escapeHtml((group.items || []).length)}</span></h3><p class="muted">${escapeHtml(today.day || '')} ${escapeHtml(today.date || '')} · ${escapeHtml(group.schedule_time || 'any time')}</p>${items || emptyState('No exercises in this group.', '')}</div>`;
+      }).join('');
+      const orderRows = (fitness.today_orders || []).map(order => `<div class="todo-row"><strong>${escapeHtml(order.title)}</strong> <span class="pill">${escapeHtml(order.status || 'open')}</span><p class="muted">${escapeHtml(order.details || '')}</p><button class="inline primary" onclick="updateFitnessOrder('${escapeJs(order.id)}','done')">Mark Done</button> <button class="inline" onclick="updateFitnessOrder('${escapeJs(order.id)}','snoozed')">Snooze</button> <button class="inline" onclick="rescheduleFitnessOrder('${escapeJs(order.id)}')">Reschedule</button> <button class="inline" onclick="skipFitnessOrder('${escapeJs(order.id)}')">Skip with Reason</button></div>`).join('');
+      document.getElementById('fitnessOrders').innerHTML = groupChecklists || orderRows || emptyState(`No fitness group scheduled for ${today.day || 'today'}.`, 'Only the current day’s group appears here.');
       renderFitnessPlan(fitness);
       renderFitnessExercises();
       document.getElementById('fitnessProgress').innerHTML = renderSimpleList((fitness.progress_notes || []).slice().reverse(), item => `${item.date || ''} | ${item.note || item.notes || ''}`);
@@ -7117,6 +7507,16 @@ INDEX_HTML = r"""<!doctype html>
       if (selectedFitnessTab === 'summary') {
         document.querySelectorAll('[data-fitness-view]').forEach(view => view.classList.remove('active'));
       }
+    }
+
+    async function updateFitnessChecklist(groupId, itemId, completed) {
+      const res = await fetch(`/api/fitness/today-checklist/${encodeURIComponent(groupId)}/${encodeURIComponent(itemId)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ completed }),
+      });
+      await handleResponse(res);
+      await loadState();
     }
 
     async function updateFitnessOrder(orderId, status, extra = {}) {
@@ -7951,6 +8351,30 @@ class CompanionWebHandler(BaseHTTPRequestHandler):
                 if not self.require_companion_access():
                     return
                 self.send_json(system_health_report())
+            elif path == "/api/companion-backup":
+                token, _profile = self.set_active_profile_from_session()
+                if token is None:
+                    return
+                if not self.require_companion_access():
+                    return
+                filename, body, _manifest = companion_backup_archive()
+                self.send_bytes(body, "application/zip", filename)
+            elif path == "/api/backups/companion-db":
+                token, _profile = self.set_active_profile_from_session()
+                if token is None:
+                    return
+                if not self.require_companion_access():
+                    return
+                filename, body, _manifest = companion_database_backup_archive()
+                self.send_bytes(body, "application/zip", filename)
+            elif path == "/api/backups/full-console":
+                token, _profile = self.set_active_profile_from_session()
+                if token is None:
+                    return
+                if not self.require_companion_access():
+                    return
+                filename, body, _manifest = full_console_backup_archive()
+                self.send_bytes(body, "application/zip", filename)
             elif path == "/api/calendar/export":
                 token, _profile = self.set_active_profile_from_session()
                 if token is None:
@@ -8044,6 +8468,13 @@ class CompanionWebHandler(BaseHTTPRequestHandler):
             elif path == "/api/users":
                 profile = create_user_profile(self.read_json_body())
                 self.send_json({"message": f"Registered {profile['display_name']}. Array must approve this account before login.", "profile": public_profile(profile)})
+            elif path == "/api/backups/restore/preview":
+                token, _profile = self.set_active_profile_from_session()
+                if token is None:
+                    return
+                if not self.require_companion_access():
+                    return
+                self.send_json(restore_preview(self.read_binary_body(MAX_BACKUP_UPLOAD_BYTES, "Backup restore preview")))
             else:
                 token, _profile = self.set_active_profile_from_session()
                 if token is None:
@@ -8054,6 +8485,12 @@ class CompanionWebHandler(BaseHTTPRequestHandler):
                         return
                     directive = create_directive(self.read_json_body())
                     self.send_json({"message": f"Created {directive['id']}.", "directive": directive})
+                elif path == "/api/backups/restore":
+                    if not self.require_companion_access():
+                        return
+                    data = self.read_json_body()
+                    result = restore_from_preview(data.get("token"), data.get("confirmation"))
+                    self.send_json({"message": "Backup restored.", **result})
                 elif path == "/api/companions":
                     if not self.require_companion_access():
                         return
@@ -8262,6 +8699,14 @@ class CompanionWebHandler(BaseHTTPRequestHandler):
                 order_id = unquote(path.rsplit("/", 1)[1])
                 order = update_fitness_order(order_id, self.read_json_body())
                 self.send_json({"message": f"Updated {order['id']}.", "order": order, "fitness": fitness_state()})
+            elif path.startswith("/api/fitness/today-checklist/"):
+                if not self.require_category_access("fitness"):
+                    return
+                parts = [unquote(part) for part in path.split("/") if part]
+                if len(parts) != 5:
+                    raise ValueError("Checklist endpoint requires a group and item id.")
+                today = update_fitness_today_checklist(parts[3], parts[4], self.read_json_body().get("completed"))
+                self.send_json({"message": "Updated today's fitness checklist.", "today": today})
             elif path.startswith("/api/fitness/exercises/"):
                 if not self.require_category_access("fitness"):
                     return
@@ -8437,6 +8882,12 @@ class CompanionWebHandler(BaseHTTPRequestHandler):
         raw = self.rfile.read(length).decode("utf-8")
         return json.loads(raw) if raw.strip() else {}
 
+    def read_binary_body(self, maximum, label):
+        length = ensure_content_length(self.headers, maximum, label)
+        if length <= 0:
+            raise ValueError(f"{label} is empty.")
+        return self.rfile.read(length)
+
     def send_security_headers(self):
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Referrer-Policy", "same-origin")
@@ -8475,6 +8926,16 @@ class CompanionWebHandler(BaseHTTPRequestHandler):
         self.send_security_headers()
         if as_attachment:
             self.send_header("Content-Disposition", f'attachment; filename="{resolved.name}"')
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def send_bytes(self, body, content_type, filename=None):
+        self.send_response(200)
+        self.send_header("Content-Type", content_type)
+        self.send_security_headers()
+        if filename:
+            self.send_header("Content-Disposition", f'attachment; filename="{filename}"')
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
